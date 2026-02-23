@@ -39,6 +39,8 @@ export interface CanonicalStationInput {
   connectors?: Connector[];
   workingHours?: string;
   rating?: number;
+  description?: string;
+  images?: string[];
   sources: SourceId[];
   primarySource: SourceId;
   updatedAt?: Date;

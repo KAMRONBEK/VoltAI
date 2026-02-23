@@ -1,5 +1,16 @@
 import { getDistance } from "geolib";
 
+const STOP_WORDS = new Set([
+  "ev",
+  "charging",
+  "station",
+  "elektro",
+  "зарядная",
+  "станция",
+  "zaryadlash",
+  "tok"
+]);
+
 export function distanceMeters(a: [number, number], b: [number, number]): number {
   const [lngA, latA] = a;
   const [lngB, latB] = b;
@@ -12,9 +23,12 @@ export function distanceMeters(a: [number, number], b: [number, number]): number
 export function normalizedName(value: string): string {
   return value
     .toLowerCase()
-    .replace(/[^a-z0-9\s-]/gi, " ")
+    .replace(/[^a-z0-9а-яёқғҳў\s-]/gi, " ")
     .replace(/\s+/g, " ")
-    .trim();
+    .trim()
+    .split(" ")
+    .filter((word) => word && !STOP_WORDS.has(word))
+    .join(" ");
 }
 
 export function nameSimilarity(a: string, b: string): number {

@@ -31,6 +31,8 @@ const stationSchema = new Schema(
     connectors: { type: [connectorSchema], default: [] },
     workingHours: { type: String, required: false, trim: true },
     rating: { type: Number, required: false },
+    description: { type: String, required: false, trim: true },
+    images: { type: [String], default: [] },
     sources: { type: [String], required: true, default: [] },
     primarySource: { type: String, required: true, trim: true },
     updatedAt: { type: Date, required: true, default: Date.now }

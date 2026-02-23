@@ -7,11 +7,19 @@ on:
 
 jobs:
   scrape:
+    strategy:
+      fail-fast: false
+      matrix:
+        shardIndex: [0, 1, 2, 3]
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     env:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
       NODE_ENV: production
+      MAP_SHARD_TOTAL: 4
+      MAP_SHARD_INDEX: ${{ matrix.shardIndex }}
+      QUALITY_MIN_RAW_STATIONS: 250
+      QUALITY_MIN_COORD_RATE: 0.6
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,3 +28,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run scrape:yandex
+      - name: Upload yandex metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yandex-metrics-shard-${{ matrix.shardIndex }}
+          path: tmp/yandex-crawl-metrics.json
+          if-no-files-found: ignore

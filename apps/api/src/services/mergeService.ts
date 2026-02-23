@@ -23,6 +23,8 @@ interface MergeStation {
   connectors: Array<{ type: string; power?: number }>;
   workingHours?: string;
   rating?: number;
+  description?: string;
+  images: string[];
   sources: SourceId[];
   primarySource: SourceId;
   updatedAt: Date;
@@ -44,7 +46,8 @@ export async function mergeStations(): Promise<{ mergedCount: number }> {
     const foundIndex = merged.findIndex((existing) => {
       const distance = distanceMeters(existing.location.coordinates, rawCoords);
       const similarity = nameSimilarity(existing.name, rawName);
-      return distance <= 50 && similarity >= 0.6;
+      const distanceLimit = similarity >= 0.7 ? 80 : 40;
+      return distance <= distanceLimit && similarity >= 0.5;
     });
 
     if (foundIndex === -1) {
@@ -61,6 +64,8 @@ export async function mergeStations(): Promise<{ mergedCount: number }> {
         })),
         workingHours: raw.workingHours ?? undefined,
         rating: raw.rating ?? undefined,
+        description: extractDescription(raw.rawData),
+        images: extractImages(raw.rawData),
         sources: [rawSource],
         primarySource: rawSource,
         updatedAt: new Date()
@@ -82,6 +87,7 @@ export async function mergeStations(): Promise<{ mergedCount: number }> {
       target.location.coordinates = rawCoords;
       target.workingHours = raw.workingHours ?? target.workingHours;
       target.rating = raw.rating ?? target.rating;
+      target.description = extractDescription(raw.rawData) ?? target.description;
     }
 
     if (raw.connectors?.length) {
@@ -94,6 +100,7 @@ export async function mergeStations(): Promise<{ mergedCount: number }> {
         }
       }
     }
+    mergeImages(target, extractImages(raw.rawData));
     target.updatedAt = new Date();
   }
 
@@ -107,4 +114,36 @@ export async function mergeStations(): Promise<{ mergedCount: number }> {
 
 function getPriority(source: string): number {
   return priorityIndex.get(source as SourceId) ?? Number.MAX_SAFE_INTEGER;
+}
+
+function extractDescription(rawData: unknown): string | undefined {
+  if (!rawData || typeof rawData !== "object") {
+    return undefined;
+  }
+  const value = (rawData as Record<string, unknown>).description;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function extractImages(rawData: unknown): string[] {
+  if (!rawData || typeof rawData !== "object") {
+    return [];
+  }
+  const value = (rawData as Record<string, unknown>).images;
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === "string").slice(0, 8);
+}
+
+function mergeImages(target: MergeStation, images: string[]): void {
+  if (!images.length) {
+    return;
+  }
+  const seen = new Set(target.images);
+  for (const image of images) {
+    if (!seen.has(image)) {
+      target.images.push(image);
+      seen.add(image);
+    }
+  }
 }
