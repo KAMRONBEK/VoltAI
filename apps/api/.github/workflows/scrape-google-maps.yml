@@ -26,7 +26,7 @@ jobs:
         with:
           node-version: "20"
           cache: npm
-      - run: npm ci
+      - run: npm ci --include=dev
       - run: npm run scrape:google
       - name: Upload google metrics
         if: always()
