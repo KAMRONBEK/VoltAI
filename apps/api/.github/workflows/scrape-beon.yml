@@ -1,0 +1,13 @@
+name: Scrape Beon
+
+on:
+  schedule:
+    - cron: "15 4 1 * *"
+  workflow_dispatch:
+
+jobs:
+  call:
+    uses: ./.github/workflows/scrape-app.yml
+    with:
+      app_name: beon
+    secrets: inherit

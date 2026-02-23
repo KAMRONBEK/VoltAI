@@ -1,0 +1,33 @@
+name: Merge Stations
+
+on:
+  workflow_run:
+    workflows:
+      - Scrape Tokbor
+      - Scrape Spectre Energy
+      - Scrape Megawatt Energy
+      - Scrape K-Watt
+      - Scrape Pro-Tok
+      - Scrape Beon
+      - Scrape Yandex Maps
+      - Scrape Google Maps
+    types:
+      - completed
+  workflow_dispatch:
+
+jobs:
+  merge:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npm run merge

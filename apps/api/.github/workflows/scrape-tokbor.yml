@@ -1,0 +1,13 @@
+name: Scrape Tokbor
+
+on:
+  schedule:
+    - cron: "0 3 1 * *"
+  workflow_dispatch:
+
+jobs:
+  call:
+    uses: ./.github/workflows/scrape-app.yml
+    with:
+      app_name: tokbor
+    secrets: inherit

@@ -1,0 +1,13 @@
+name: Scrape Megawatt Energy
+
+on:
+  schedule:
+    - cron: "30 3 1 * *"
+  workflow_dispatch:
+
+jobs:
+  call:
+    uses: ./.github/workflows/scrape-app.yml
+    with:
+      app_name: megawatt-energy
+    secrets: inherit
