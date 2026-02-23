@@ -9,3 +9,5 @@ traffic.har
 *.apk
 *.xapk
 tmp
+
+.vercel
