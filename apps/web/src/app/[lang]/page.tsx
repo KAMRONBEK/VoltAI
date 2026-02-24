@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 import { Container } from "@/components/Container";
 import { NeoButton } from "@/components/NeoButton";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -30,11 +29,8 @@ export function generateMetadata({ params }: Props): Metadata {
 }
 
 export default function HomeByLang({ params }: Props) {
-  if (!isLocale(params.lang)) {
-    redirect(`/${defaultLocale}`);
-  }
-
-  const lang: Locale = params.lang;
+  // Avoid redirect loops in edge/cached scenarios; fall back to default.
+  const lang: Locale = isLocale(params.lang) ? params.lang : defaultLocale;
   const t = getDictionary(lang);
 
   const supportEmail = "support@voltai.uz";

@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 import { PageShell } from "@/components/PageShell";
 import { defaultLocale, isLocale } from "@/i18n/config";
 import type { Locale } from "@/i18n/config";
@@ -29,8 +28,7 @@ export function generateMetadata({ params }: Props): Metadata {
 }
 
 export default function TermsByLang({ params }: Props) {
-  if (!isLocale(params.lang)) redirect(`/${defaultLocale}/terms`);
-  const lang: Locale = params.lang;
+  const lang: Locale = isLocale(params.lang) ? params.lang : defaultLocale;
   const t = getDictionary(lang);
 
   return (
