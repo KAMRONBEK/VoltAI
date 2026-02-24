@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { PageShell } from "@/components/PageShell";
-import { defaultLocale, isLocale } from "@/i18n/config";
+import { defaultLocale, toLocale } from "@/i18n/config";
 import type { Locale } from "@/i18n/config";
 import { getDictionary } from "@/i18n/getDictionary";
 
@@ -11,7 +11,7 @@ type Props = {
 const supportEmail = "support@voltai.uz";
 
 export function generateMetadata({ params }: Props): Metadata {
-  const lang = isLocale(params.lang) ? params.lang : defaultLocale;
+  const lang = toLocale(params.lang) ?? defaultLocale;
   const t = getDictionary(lang);
   return {
     title: t.legal.privacy.title,
@@ -28,7 +28,7 @@ export function generateMetadata({ params }: Props): Metadata {
 }
 
 export default function PrivacyByLang({ params }: Props) {
-  const lang: Locale = isLocale(params.lang) ? params.lang : defaultLocale;
+  const lang: Locale = toLocale(params.lang) ?? defaultLocale;
   const t = getDictionary(lang);
 
   return (

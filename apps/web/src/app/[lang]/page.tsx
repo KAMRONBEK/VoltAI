@@ -3,7 +3,7 @@ import { Container } from "@/components/Container";
 import { NeoButton } from "@/components/NeoButton";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
-import { defaultLocale, isLocale } from "@/i18n/config";
+import { defaultLocale, toLocale } from "@/i18n/config";
 import type { Locale } from "@/i18n/config";
 import { getDictionary } from "@/i18n/getDictionary";
 
@@ -12,7 +12,7 @@ type Props = {
 };
 
 export function generateMetadata({ params }: Props): Metadata {
-  const lang = isLocale(params.lang) ? params.lang : defaultLocale;
+  const lang = toLocale(params.lang) ?? defaultLocale;
   const t = getDictionary(lang);
   return {
     title: "VoltAI",
@@ -30,7 +30,7 @@ export function generateMetadata({ params }: Props): Metadata {
 
 export default function HomeByLang({ params }: Props) {
   // Avoid redirect loops in edge/cached scenarios; fall back to default.
-  const lang: Locale = isLocale(params.lang) ? params.lang : defaultLocale;
+  const lang: Locale = toLocale(params.lang) ?? defaultLocale;
   const t = getDictionary(lang);
 
   const supportEmail = "support@voltai.uz";
