@@ -11,7 +11,9 @@ import type { Station } from '@/types/stations';
 import { DEFAULT_STATIONS_FILTERS, type StationsFilters } from '@/types/stationsFilters';
 import * as Location from 'expo-location';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE, type Region } from 'react-native-maps';
 
 const UZBEKISTAN_REGION: Region = {
@@ -33,6 +35,7 @@ const DARK_MAP_STYLE = [
 
 export default function StationsMapScreen() {
   const mapRef = useRef<MapView | null>(null);
+  const insets = useSafeAreaInsets();
   const isOffline = useIsOffline();
 
   const MARKER_SNAPSHOT_KEY_VERSION = 1;
@@ -40,15 +43,19 @@ export default function StationsMapScreen() {
   const [stations, setStations] = useState<Station[]>([]);
   const [filters, setFilters] = useState<StationsFilters>(DEFAULT_STATIONS_FILTERS);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [isLoadingStations, setIsLoadingStations] = useState(true);
   const [stationsApiError, setStationsApiError] = useState<string | undefined>(undefined);
   const [markerReady, setMarkerReady] = useState<Record<string, string>>({});
 
-  const selectedStation = useMemo(
-    () => stations.find((s) => s.id === selectedStationId) ?? null,
-    [stations, selectedStationId]
-  );
+  type StationGroup = { id: string; location: Station['location']; stations: Station[] };
+
+  function groupKeyForLocation(loc: Station['location']): string {
+    // Rounding keeps grouping stable even if API has tiny float differences.
+    const lat = loc.latitude.toFixed(5);
+    const lng = loc.longitude.toFixed(5);
+    return `${lat}:${lng}`;
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -134,45 +141,75 @@ export default function StationsMapScreen() {
     });
   }, [filters, stations]);
 
+  const stationGroups = useMemo<StationGroup[]>(() => {
+    const map = new Map<string, StationGroup>();
+    for (const s of filteredStations) {
+      const id = groupKeyForLocation(s.location);
+      const existing = map.get(id);
+      if (existing) {
+        existing.stations.push(s);
+      } else {
+        map.set(id, { id, location: s.location, stations: [s] });
+      }
+    }
+
+    // Only 1 or 2 per marker as requested; if API ever returns more, keep 2 most relevant.
+    for (const g of map.values()) {
+      g.stations.sort((a, b) => {
+        const rank = (st: Station) =>
+          st.status === 'available' ? 0 : st.status === 'in_use' ? 1 : st.status === 'unknown' ? 2 : 3;
+        return rank(a) - rank(b);
+      });
+      if (g.stations.length > 2) g.stations = g.stations.slice(0, 2);
+    }
+
+    return Array.from(map.values());
+  }, [filteredStations]);
+
+  const selectedStations = useMemo(() => {
+    if (!selectedGroupId) return null;
+    return stationGroups.find((g) => g.id === selectedGroupId)?.stations ?? null;
+  }, [selectedGroupId, stationGroups]);
+
   useEffect(() => {
     // If the rendered set of markers changes, force Android to re-snapshot marker views.
     if (Platform.OS !== 'android') return;
     setMarkerReady({});
-  }, [filteredStations.length]);
+  }, [stationGroups.length]);
 
   const markers = useMemo(
     () =>
-      filteredStations.map((station) => {
-        const isSelected = station.id === selectedStationId;
+      stationGroups.map((group) => {
+        const isSelected = group.id === selectedGroupId;
         const expectedKey = `${MARKER_SNAPSHOT_KEY_VERSION}:${isSelected ? 'sel' : 'norm'}`;
-        const currentKey = markerReady[station.id];
+        const currentKey = markerReady[group.id];
 
         const androidNeedsSnapshot = Platform.OS === 'android' && currentKey !== expectedKey;
         const tracksViewChanges = Platform.OS === 'android' ? androidNeedsSnapshot : isSelected;
 
         return (
           <Marker
-            key={station.id}
-            coordinate={station.location}
-            onPress={() => setSelectedStationId(station.id)}
-            accessibilityLabel={station.name}
+            key={group.id}
+            coordinate={group.location}
+            onPress={() => setSelectedGroupId(group.id)}
+            accessibilityLabel={group.stations[0]?.name ?? 'Station'}
             anchor={{ x: 0.5, y: 0.5 }}
             tracksViewChanges={tracksViewChanges}>
             <StationMarker
-              status={station.status}
+              statuses={group.stations.map((s) => s.status).slice(0, 2)}
               selected={isSelected}
               onFirstLayout={() => {
                 if (Platform.OS !== 'android') return;
                 setMarkerReady((prev) => {
-                  if (prev[station.id] === expectedKey) return prev;
-                  return { ...prev, [station.id]: expectedKey };
+                  if (prev[group.id] === expectedKey) return prev;
+                  return { ...prev, [group.id]: expectedKey };
                 });
               }}
             />
           </Marker>
         );
       }),
-    [filteredStations, markerReady, selectedStationId]
+    [markerReady, selectedGroupId, stationGroups]
   );
 
   return (
@@ -188,12 +225,13 @@ export default function StationsMapScreen() {
         style={StyleSheet.absoluteFill}
         customMapStyle={DARK_MAP_STYLE}
         showsUserLocation
-        showsMyLocationButton={Platform.OS === 'android'}
-        onPress={() => setSelectedStationId(null)}>
+        // Use custom FABs instead of the native button.
+        showsMyLocationButton={false}
+        onPress={() => setSelectedGroupId(null)}>
         {markers}
       </MapView>
 
-      <View pointerEvents="none" style={styles.topOverlay}>
+      <View pointerEvents="none" style={[styles.topOverlay, { top: insets.top + 10 }]}>
         <OfflineBanner visible={isOffline} />
         {isLoadingStations ? (
           <View style={styles.pill}>
@@ -208,13 +246,21 @@ export default function StationsMapScreen() {
         ) : null}
       </View>
 
-      <View style={styles.filterFabWrap}>
+      <View style={[styles.fabColumn, { bottom: insets.bottom + 70 }]}>
+        <Pressable
+          onPress={() => requestAndCenterUserLocation(mapRef)}
+          style={styles.fabButton}
+          accessibilityRole="button"
+          accessibilityLabel="My location">
+          <MaterialIcons name="my-location" size={20} color="#ECEDEE" />
+        </Pressable>
+
         <FilterFab badgeCount={activeFilterCount} onPress={() => setIsFilterOpen(true)} />
       </View>
 
       <StationBottomSheet
-        station={selectedStation}
-        onClose={() => setSelectedStationId(null)}
+        stations={selectedStations}
+        onClose={() => setSelectedGroupId(null)}
       />
 
       <StationsFilterSheet
@@ -277,9 +323,21 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255, 184, 0, 0.35)',
   },
-  filterFabWrap: {
+  fabColumn: {
     position: 'absolute',
     right: 12,
     bottom: 110,
+    gap: 10,
+    alignItems: 'flex-end',
+  },
+  fabButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(18, 18, 18, 0.92)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
 });

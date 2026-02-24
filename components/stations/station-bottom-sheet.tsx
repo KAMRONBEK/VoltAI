@@ -9,7 +9,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import type { Station } from '@/types/stations';
 
 type Props = {
-  station: Station | null;
+  stations: Station[] | null;
   onClose: () => void;
 };
 
@@ -48,34 +48,51 @@ type NavApp = {
 
 const APPS_WHITELIST = ['google-maps', 'apple-maps', 'yandex', 'yandex-maps', 'dgis', 'maps-me', 'waze'];
 
-export function StationBottomSheet({ station, onClose }: Props) {
+export function StationBottomSheet({ stations, onClose }: Props) {
   const colorScheme = useColorScheme() ?? 'dark';
   const sheetRef = useRef<BottomSheet | null>(null);
 
   const snapPoints = useMemo(() => [180, 340, '85%'] as const, []);
 
+  const stationsIdsKey = useMemo(() => (stations ? stations.map((s) => s.id).join('|') : ''), [stations]);
+  const stationsList = useMemo(() => stations ?? [], [stations]);
+  const firstStationIdFromKey = useMemo(() => {
+    const first = stationsIdsKey.split('|')[0];
+    return first && first.length ? first : null;
+  }, [stationsIdsKey]);
+
   const [showNavApps, setShowNavApps] = useState(false);
   const [navApps, setNavApps] = useState<NavApp[]>([]);
   const [navLoading, setNavLoading] = useState(false);
   const [navError, setNavError] = useState<string | null>(null);
+  const [activeStationId, setActiveStationId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!sheetRef.current) return;
 
-    if (station) {
+    if (stationsList.length) {
       sheetRef.current.snapToIndex(1);
     } else {
       sheetRef.current.close();
     }
-  }, [station]);
+  }, [stationsList.length]);
 
   useEffect(() => {
     // Reset navigation section when switching stations.
-    setShowNavApps(false);
-    setNavApps([]);
-    setNavLoading(false);
-    setNavError(null);
-  }, [station?.id]);
+    setShowNavApps((prev) => (prev ? false : prev));
+    setNavApps((prev) => (prev.length ? [] : prev));
+    setNavLoading((prev) => (prev ? false : prev));
+    setNavError((prev) => (prev !== null ? null : prev));
+
+    const nextActiveId = firstStationIdFromKey;
+    setActiveStationId((prev) => (prev === nextActiveId ? prev : nextActiveId));
+  }, [firstStationIdFromKey, stationsIdsKey]);
+
+  const activeStation = useMemo(() => {
+    if (!stationsList.length) return null;
+    if (!activeStationId) return stationsList[0] ?? null;
+    return stationsList.find((s) => s.id === activeStationId) ?? stationsList[0] ?? null;
+  }, [activeStationId, stationsList]);
 
   const backgroundColor = Colors[colorScheme].background;
   const textColor = Colors[colorScheme].text;
@@ -113,16 +130,18 @@ export function StationBottomSheet({ station, onClose }: Props) {
       backgroundStyle={[styles.sheetBackground, { backgroundColor }]}
       handleIndicatorStyle={{ backgroundColor: 'rgba(255,255,255,0.25)' }}>
       <BottomSheetView style={styles.content}>
-        {station ? (
+        {activeStation ? (
           <>
             <View style={styles.headerRow}>
               <View style={styles.titleWrap}>
                 <ThemedText type="subtitle" numberOfLines={1}>
-                  {station.name}
+                  {activeStation.name}
                 </ThemedText>
                 <View style={styles.metaRow}>
-                  <View style={[styles.statusDot, { backgroundColor: statusDotColor(station.status) }]} />
-                  <ThemedText style={{ color: textColor }}>{formatStatus(station.status)}</ThemedText>
+                  <View
+                    style={[styles.statusDot, { backgroundColor: statusDotColor(activeStation.status) }]}
+                  />
+                  <ThemedText style={{ color: textColor }}>{formatStatus(activeStation.status)}</ThemedText>
                 </View>
               </View>
 
@@ -131,23 +150,47 @@ export function StationBottomSheet({ station, onClose }: Props) {
               </Pressable>
             </View>
 
-            {station.address || station.city ? (
+            {stations && stations.length > 1 ? (
+              <View style={styles.switchRow}>
+                {stations.slice(0, 2).map((s) => {
+                  const isOn = s.id === activeStation.id;
+                  return (
+                    <Pressable
+                      key={s.id}
+                      onPress={() => setActiveStationId(s.id)}
+                      style={[
+                        styles.switchChip,
+                        isOn ? { borderColor: `${Colors[colorScheme].tint}99` } : null,
+                        isOn ? { backgroundColor: `${Colors[colorScheme].tint}1A` } : null,
+                      ]}
+                      accessibilityRole="button">
+                      <View style={[styles.smallDot, { backgroundColor: statusDotColor(s.status) }]} />
+                      <ThemedText type="defaultSemiBold" numberOfLines={1}>
+                        {s.name}
+                      </ThemedText>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+
+            {activeStation.address || activeStation.city ? (
               <ThemedText style={styles.addressText} numberOfLines={2}>
-                {[station.address, station.city].filter(Boolean).join(' · ')}
+                {[activeStation.address, activeStation.city].filter(Boolean).join(' · ')}
               </ThemedText>
             ) : null}
 
-            {station.operator ? (
+            {activeStation.operator ? (
               <ThemedText style={styles.operatorText} numberOfLines={1}>
-                Operator: {station.operator}
+                Operator: {activeStation.operator}
               </ThemedText>
             ) : null}
 
             <View style={styles.section}>
               <ThemedText type="defaultSemiBold">Connectors</ThemedText>
               <View style={styles.pillsRow}>
-                {station.connectors.length ? (
-                  station.connectors.map((c) => (
+                {activeStation.connectors.length ? (
+                  activeStation.connectors.map((c) => (
                     <View key={c.id} style={styles.pill}>
                       <ThemedText type="defaultSemiBold">
                         {c.type} {c.powerKw ? `${Math.round(c.powerKw)}kW` : ''}
@@ -167,7 +210,7 @@ export function StationBottomSheet({ station, onClose }: Props) {
                   const next = !showNavApps;
                   setShowNavApps(next);
                   if (next) {
-                    await ensureNavAppsLoaded(station);
+                    await ensureNavAppsLoaded(activeStation);
                     sheetRef.current?.snapToIndex(2);
                   }
                 }}
@@ -257,6 +300,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  switchRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  switchChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  smallDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
   },
   statusDot: {
     width: 10,

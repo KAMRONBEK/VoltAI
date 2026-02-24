@@ -5,7 +5,7 @@ import { Platform, StyleSheet, View, type LayoutChangeEvent } from 'react-native
 import type { StationStatus } from '@/types/stations';
 
 type Props = {
-  status: StationStatus;
+  statuses: StationStatus[]; // 1 or 2
   selected?: boolean;
   onFirstLayout?: () => void;
 };
@@ -41,8 +41,32 @@ function withAlpha(hex: string, alpha: number): string {
   return `rgba(${rgb.r},${rgb.g},${rgb.b},${a})`;
 }
 
-export function StationMarker({ status, selected = false, onFirstLayout }: Props) {
-  const accent = statusColor(status);
+function statusDotColor(status: StationStatus): string {
+  switch (status) {
+    case 'available':
+      return '#2FE28A';
+    case 'in_use':
+      return '#F7B84B';
+    case 'offline':
+      return '#6D6D6D';
+    default:
+      return '#4DB5FF';
+  }
+}
+
+function primaryAccent(statuses: StationStatus[]): string {
+  // Prefer availability signal as the primary accent.
+  if (statuses.includes('available')) return statusColor('available');
+  if (statuses.includes('in_use')) return statusColor('in_use');
+  if (statuses.includes('offline')) return statusColor('offline');
+  return statusColor('unknown');
+}
+
+export function StationMarker({ statuses, selected = false, onFirstLayout }: Props) {
+  const accent = primaryAccent(statuses);
+  const splitA = statuses[0] ? statusDotColor(statuses[0]) : accent;
+  const splitB = statuses[1] ? statusDotColor(statuses[1]) : accent;
+  const isDual = statuses.length > 1;
 
   const selectedScale = selected ? (Platform.OS === 'android' ? 1 : 1.06) : 1;
 
@@ -57,11 +81,22 @@ export function StationMarker({ status, selected = false, onFirstLayout }: Props
       <View
         style={[
           styles.circle,
-          { borderColor: withAlpha(accent, 0.9), backgroundColor: '#0F1114' },
+          {
+            borderColor: isDual ? 'rgba(255,255,255,0.18)' : withAlpha(accent, 0.9),
+            backgroundColor: '#0F1114',
+          },
           selected ? { shadowColor: accent } : null,
         ]}>
-        <View style={[styles.circleInner, { backgroundColor: withAlpha(accent, 0.14) }]}>
-          <MaterialIcons name="bolt" size={12} color={accent} />
+        {isDual ? (
+          <View style={styles.splitBg} pointerEvents="none">
+            <View style={[styles.splitHalf, { backgroundColor: withAlpha(splitA, 0.55) }]} />
+            <View style={[styles.splitHalf, { backgroundColor: withAlpha(splitB, 0.55) }]} />
+            <View style={styles.splitDivider} />
+          </View>
+        ) : null}
+
+        <View style={[styles.circleInner, { backgroundColor: isDual ? 'rgba(0,0,0,0.35)' : withAlpha(accent, 0.14) }]}>
+          <MaterialIcons name="bolt" size={12} color={isDual ? '#ECEDEE' : accent} />
         </View>
       </View>
     </View>
@@ -100,6 +135,25 @@ const styles = StyleSheet.create({
       },
       default: {},
     }),
+  },
+  splitBg: {
+    position: 'absolute',
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    overflow: 'hidden',
+    flexDirection: 'row',
+  },
+  splitHalf: {
+    flex: 1,
+  },
+  splitDivider: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: '50%',
+    width: 1,
+    backgroundColor: 'rgba(255,255,255,0.22)',
   },
   circleInner: {
     width: 18,
