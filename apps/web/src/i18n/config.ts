@@ -4,8 +4,15 @@ export type Locale = (typeof locales)[number];
 export const defaultLocale: Locale = "uz";
 
 export function toLocale(value: unknown): Locale | null {
-  if (typeof value !== "string") return null;
-  const v = value.trim().toLowerCase();
+  const raw =
+    typeof value === "string"
+      ? value
+      : Array.isArray(value) && typeof value[0] === "string"
+        ? value[0]
+        : null;
+  if (raw === null) return null;
+
+  const v = raw.trim().toLowerCase();
   if (v === "uz" || v === "ru" || v === "en") return v;
   return null;
 }
