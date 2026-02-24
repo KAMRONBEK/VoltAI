@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+:root {
+  /* Dark-first palette (modern neo-style) */
+  --background: #070a12;
+  --foreground: #e9eefc;
+  --surface: rgba(255, 255, 255, 0.06);
+  --surface-2: rgba(255, 255, 255, 0.09);
+  --border: rgba(255, 255, 255, 0.12);
+  --muted: rgba(233, 238, 252, 0.72);
+  --accent: #7c5cff;
+  --accent-2: #27d7ff;
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* Optional light theme (not used by default) */
+.light {
+  --background: #f7f8ff;
+  --foreground: #0b1020;
+  --surface: rgba(11, 16, 32, 0.06);
+  --surface-2: rgba(11, 16, 32, 0.09);
+  --border: rgba(11, 16, 32, 0.12);
+  --muted: rgba(11, 16, 32, 0.74);
+  --accent: #6a4cff;
+  --accent-2: #0098ff;
+  color-scheme: light;
+}
+
+body {
+  background: radial-gradient(900px 600px at 15% 10%, rgba(124, 92, 255, 0.22), transparent 60%),
+    radial-gradient(700px 500px at 80% 20%, rgba(39, 215, 255, 0.16), transparent 55%),
+    var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+@layer components {
+  .neo-card {
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 75%, transparent), var(--surface));
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.06) inset,
+      0 24px 80px rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(10px);
+  }
+
+  .neo-ring {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent),
+      0 0 40px color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+}
