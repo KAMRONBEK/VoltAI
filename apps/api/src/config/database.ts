@@ -9,7 +9,8 @@ export async function connectDatabase(): Promise<void> {
   }
 
   await mongoose.connect(mongoUri, {
-    dbName: undefined
+    dbName: undefined,
+    serverSelectionTimeoutMS: 30_000
   });
 }
 

@@ -108,14 +108,22 @@ async function run(): Promise<void> {
 }
 
 async function estimateCellDensity(cell: GeoCell, page: Page, keyword: string): Promise<number> {
-  const center = cellCenter(cell);
-  const query = encodeURIComponent(`${keyword} near ${center.lat},${center.lng}`);
-  await page.goto(`https://www.google.com/maps/search/${query}/`, {
-    waitUntil: "domcontentloaded",
-    timeout: 35_000
-  });
-  await jitterDelay(1500, 700);
-  return page.evaluate(() => Array.from(document.querySelectorAll("a[href*='/maps/place/']")).length);
+  return withRetry(
+    async () => {
+      const center = cellCenter(cell);
+      const query = encodeURIComponent(`${keyword} near ${center.lat},${center.lng}`);
+      await page.goto(`https://www.google.com/maps/search/${query}/`, {
+        waitUntil: "domcontentloaded",
+        timeout: 35_000
+      });
+      await jitterDelay(1500, 700);
+      return page.evaluate(() => Array.from(document.querySelectorAll("a[href*='/maps/place/']")).length);
+    },
+    {
+      retries: 2,
+      baseDelayMs: 1500
+    }
+  );
 }
 
 async function collectCandidates(page: Page, cell: GeoCell, keyword: string): Promise<Candidate[]> {
