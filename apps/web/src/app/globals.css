@@ -1,15 +1,15 @@
 @import "tailwindcss";
 
 :root {
-  /* Dark-first palette (modern neo-style) */
-  --background: #070a12;
-  --foreground: #e9eefc;
+  /* Dark-first palette (VoltAI: dark + neon green) */
+  --background: #0b0f0c;
+  --foreground: #eaffee;
   --surface: rgba(255, 255, 255, 0.06);
   --surface-2: rgba(255, 255, 255, 0.09);
   --border: rgba(255, 255, 255, 0.12);
-  --muted: rgba(233, 238, 252, 0.72);
-  --accent: #7c5cff;
-  --accent-2: #27d7ff;
+  --muted: rgba(234, 255, 238, 0.72);
+  --accent: #39ff14;
+  --accent-2: #00e5a8;
 
   color-scheme: dark;
 }
@@ -36,14 +36,14 @@
   --surface-2: rgba(11, 16, 32, 0.09);
   --border: rgba(11, 16, 32, 0.12);
   --muted: rgba(11, 16, 32, 0.74);
-  --accent: #6a4cff;
-  --accent-2: #0098ff;
+  --accent: #1aa300;
+  --accent-2: #00b985;
   color-scheme: light;
 }
 
 body {
-  background: radial-gradient(900px 600px at 15% 10%, rgba(124, 92, 255, 0.22), transparent 60%),
-    radial-gradient(700px 500px at 80% 20%, rgba(39, 215, 255, 0.16), transparent 55%),
+  background: radial-gradient(900px 600px at 15% 10%, rgba(57, 255, 20, 0.16), transparent 60%),
+    radial-gradient(700px 500px at 80% 20%, rgba(0, 229, 168, 0.12), transparent 55%),
     var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
@@ -68,5 +68,102 @@ body {
     box-shadow:
       0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent),
       0 0 40px color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+
+  .volt-mark {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 2rem;
+    width: 2rem;
+    border-radius: 0.75rem;
+    background: var(--surface);
+    border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent),
+      0 0 26px color-mix(in srgb, var(--accent) 14%, transparent);
+    overflow: hidden;
+  }
+
+  .volt-mark::before {
+    content: "";
+    position: absolute;
+    inset: -10px;
+    background: radial-gradient(
+      circle at 35% 30%,
+      color-mix(in srgb, var(--accent) 36%, transparent),
+      transparent 55%
+    );
+    filter: blur(10px);
+    opacity: 0.45;
+    animation: volt-pulse 2.2s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  .volt-bolt {
+    color: var(--accent);
+    filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 35%, transparent));
+  }
+
+  .volt-bolt path[data-anim="dash"] {
+    stroke-dasharray: 230;
+    stroke-dashoffset: 230;
+    animation: volt-dash 1.8s linear infinite;
+  }
+
+  .volt-charge-dot {
+    box-shadow: 0 0 0 0 rgba(57, 255, 20, 0.0);
+    animation: volt-charge 1.7s ease-in-out infinite;
+  }
+}
+
+@keyframes volt-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(1.03);
+  }
+}
+
+@keyframes volt-dash {
+  0% {
+    stroke-dashoffset: 230;
+    opacity: 0.9;
+  }
+  55% {
+    opacity: 0.9;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0.25;
+  }
+}
+
+@keyframes volt-charge {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow:
+      0 0 0 0 rgba(57, 255, 20, 0.0),
+      0 0 18px rgba(57, 255, 20, 0.0);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow:
+      0 0 0 6px rgba(57, 255, 20, 0.08),
+      0 0 18px rgba(57, 255, 20, 0.22);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .volt-mark::before,
+  .volt-bolt path[data-anim="dash"],
+  .volt-charge-dot {
+    animation: none !important;
   }
 }

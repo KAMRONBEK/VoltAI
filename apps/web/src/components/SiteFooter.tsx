@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Container } from "@/components/Container";
+import { VoltMark } from "@/components/VoltMark";
 import type { Locale } from "@/i18n/config";
 
 type Props = {
@@ -17,7 +18,10 @@ export function SiteFooter({ supportEmail, lang, labels }: Props) {
     <footer className="mt-16 border-t border-border/70">
       <Container className="flex flex-col gap-6 py-10 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-sm text-muted">
-          <div className="text-foreground font-medium">VoltAI</div>
+          <div className="flex items-center gap-2 text-foreground font-medium">
+            <VoltMark />
+            <span>VoltAI</span>
+          </div>
           <div className="mt-1">
             {labels.supportLabel}:{" "}
             <a

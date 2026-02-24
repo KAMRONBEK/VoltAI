@@ -55,7 +55,7 @@ export default function HomeByLang({ params }: Props) {
           <Container>
             <div className="neo-card rounded-3xl p-8 sm:p-12">
               <div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-muted">
-                <span className="h-1.5 w-1.5 rounded-full bg-accent-2" />
+                <span className="volt-charge-dot h-1.5 w-1.5 rounded-full bg-accent-2" />
                 {t.hero.badge}
               </div>
 

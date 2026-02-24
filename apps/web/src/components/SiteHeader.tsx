@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Container } from "@/components/Container";
+import { VoltMark } from "@/components/VoltMark";
 import type { Locale } from "@/i18n/config";
 import { locales } from "@/i18n/config";
 import { cx } from "@/lib/cx";
@@ -18,9 +19,7 @@ export function SiteHeader({ lang, labels }: Props) {
     <header className="sticky top-0 z-50 border-b border-border/70 bg-background/55 backdrop-blur">
       <Container className="flex h-16 items-center justify-between">
         <Link href={`/${lang}`} className="flex items-center gap-2">
-          <span className="neo-ring inline-flex h-8 w-8 items-center justify-center rounded-xl bg-surface">
-            <span className="h-2.5 w-2.5 rounded-full bg-accent" />
-          </span>
+          <VoltMark />
           <span className="text-sm font-semibold tracking-wide">VoltAI</span>
         </Link>
 
