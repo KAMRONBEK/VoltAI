@@ -20,6 +20,10 @@ export const metadata: Metadata = {
   },
   description:
     "VoltAI helps you discover EV charging stations, compare options, and get directions quickly.",
+  icons: {
+    icon: [{ url: "/favicon.png", type: "image/png", sizes: "32x32" }],
+    apple: [{ url: "/icon.png", type: "image/png", sizes: "1024x1024" }],
+  },
   openGraph: {
     title: "VoltAI",
     description:
