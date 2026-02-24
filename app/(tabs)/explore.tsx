@@ -1,112 +1,211 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
-import { Collapsible } from '@/components/ui/collapsible';
-import { ExternalLink } from '@/components/external-link';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
+import { OfflineBanner } from '@/components/offline-banner';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Fonts } from '@/constants/theme';
+import { Colors } from '@/constants/theme';
+import { useIsOffline } from '@/hooks/use-is-offline';
+import { loadVehicleProfile, saveVehicleProfile, type VehicleProfile } from '@/lib/vehicles/vehicleProfile';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 
-export default function TabTwoScreen() {
+export default function ProfileScreen() {
+  const colorScheme = useColorScheme() ?? 'dark';
+  const isOffline = useIsOffline();
+
+  const [make, setMake] = useState('');
+  const [model, setModel] = useState('');
+  const [rangeKmText, setRangeKmText] = useState('');
+
+  const [isSaving, setIsSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      const profile = await loadVehicleProfile();
+      if (!profile || cancelled) return;
+      setMake(profile.make);
+      setModel(profile.model);
+      setRangeKmText(String(profile.rangeKm));
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const rangeKm = useMemo(() => {
+    const n = Number(rangeKmText);
+    if (!Number.isFinite(n)) return null;
+    if (n <= 0) return null;
+    return Math.round(n);
+  }, [rangeKmText]);
+
+  const canSave = make.trim().length > 0 && model.trim().length > 0 && rangeKm !== null;
+
+  async function onSave() {
+    if (!canSave || rangeKm === null) return;
+
+    const profile: VehicleProfile = {
+      make: make.trim(),
+      model: model.trim(),
+      rangeKm,
+    };
+
+    setIsSaving(true);
+    try {
+      await saveVehicleProfile(profile);
+      setSavedAt(Date.now());
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#808080"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText
-          type="title"
-          style={{
-            fontFamily: Fonts.rounded,
-          }}>
-          Explore
-        </ThemedText>
-      </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image
-          source={require('@/assets/images/react-logo.png')}
-          style={{ width: 100, height: 100, alignSelf: 'center' }}
-        />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
-        <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful{' '}
-          <ThemedText type="defaultSemiBold" style={{ fontFamily: Fonts.mono }}>
-            react-native-reanimated
-          </ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
+    <ThemedView style={styles.container}>
+      <View style={styles.topOverlay}>
+        <OfflineBanner visible={isOffline} />
+      </View>
+
+      <KeyboardAvoidingView
+        style={styles.body}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}>
+        <View style={styles.header}>
+          <ThemedText type="title">Profile</ThemedText>
+          <ThemedText style={styles.sub}>Save your EV so the app can filter chargers later.</ThemedText>
+        </View>
+
+        <View style={styles.card}>
+          <ThemedText type="defaultSemiBold">Vehicle</ThemedText>
+
+          <View style={styles.field}>
+            <ThemedText style={styles.label}>Make</ThemedText>
+            <TextInput
+              value={make}
+              onChangeText={setMake}
+              placeholder="Tesla"
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              autoCapitalize="words"
+              style={[
+                styles.input,
+                { color: Colors[colorScheme].text, borderColor: 'rgba(255,255,255,0.12)' },
+              ]}
+            />
+          </View>
+
+          <View style={styles.field}>
+            <ThemedText style={styles.label}>Model</ThemedText>
+            <TextInput
+              value={model}
+              onChangeText={setModel}
+              placeholder="Model Y"
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              autoCapitalize="words"
+              style={[
+                styles.input,
+                { color: Colors[colorScheme].text, borderColor: 'rgba(255,255,255,0.12)' },
+              ]}
+            />
+          </View>
+
+          <View style={styles.field}>
+            <ThemedText style={styles.label}>Range (km)</ThemedText>
+            <TextInput
+              value={rangeKmText}
+              onChangeText={(t) => setRangeKmText(t.replace(/[^\d]/g, ''))}
+              placeholder="420"
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              keyboardType="number-pad"
+              style={[
+                styles.input,
+                { color: Colors[colorScheme].text, borderColor: 'rgba(255,255,255,0.12)' },
+              ]}
+            />
+          </View>
+
+          <Pressable
+            onPress={onSave}
+            disabled={!canSave || isSaving}
+            style={[
+              styles.saveButton,
+              { backgroundColor: Colors[colorScheme].tint },
+              !canSave || isSaving ? styles.saveButtonDisabled : null,
+            ]}>
+            <ThemedText style={styles.saveText}>
+              {isSaving ? 'Saving…' : canSave ? 'Save' : 'Fill all fields'}
             </ThemedText>
-          ),
-        })}
-      </Collapsible>
-    </ParallaxScrollView>
+          </Pressable>
+
+          {savedAt ? <ThemedText style={styles.savedHint}>Saved</ThemedText> : null}
+        </View>
+      </KeyboardAvoidingView>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
+  container: {
+    flex: 1,
   },
-  titleContainer: {
-    flexDirection: 'row',
+  topOverlay: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    right: 12,
+    zIndex: 10,
+  },
+  body: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 72,
+    paddingBottom: 24,
+  },
+  header: {
+    gap: 6,
+    marginBottom: 14,
+  },
+  sub: {
+    opacity: 0.75,
+  },
+  card: {
+    padding: 16,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.10)',
+    gap: 14,
+  },
+  field: {
     gap: 8,
+  },
+  label: {
+    opacity: 0.8,
+  },
+  input: {
+    height: 46,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(0,0,0,0.18)',
+  },
+  saveButton: {
+    marginTop: 6,
+    height: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveButtonDisabled: {
+    opacity: 0.55,
+  },
+  saveText: {
+    color: '#0b0b0b',
+    fontWeight: '800',
+  },
+  savedHint: {
+    opacity: 0.7,
+    textAlign: 'center',
   },
 });
