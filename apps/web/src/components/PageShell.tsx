@@ -2,18 +2,29 @@ import type { ReactNode } from "react";
 import { Container } from "@/components/Container";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
+import type { Locale } from "@/i18n/config";
+import type { Dictionary } from "@/i18n/dictionary";
 
 type Props = {
   title: string;
   description?: string;
   children: ReactNode;
   supportEmail: string;
+  lang: Locale;
+  dict: Pick<Dictionary, "nav" | "languageShort" | "footer">;
 };
 
-export function PageShell({ title, description, children, supportEmail }: Props) {
+export function PageShell({
+  title,
+  description,
+  children,
+  supportEmail,
+  lang,
+  dict,
+}: Props) {
   return (
     <div className="min-h-screen">
-      <SiteHeader />
+      <SiteHeader lang={lang} labels={{ ...dict.nav, languageShort: dict.languageShort }} />
       <main className="py-12 sm:py-16">
         <Container>
           <div className="neo-card rounded-3xl p-8 sm:p-10">
@@ -30,7 +41,11 @@ export function PageShell({ title, description, children, supportEmail }: Props)
           </div>
         </Container>
       </main>
-      <SiteFooter supportEmail={supportEmail} />
+      <SiteFooter
+        supportEmail={supportEmail}
+        lang={lang}
+        labels={dict.footer}
+      />
     </div>
   );
 }
