@@ -16,6 +16,10 @@ interface Candidate {
   url: string;
 }
 
+type PersistableStation = NonNullable<ReturnType<typeof createStationFromMapCard>>;
+
+const FLUSH_BATCH_SIZE = Number(process.env.MAP_FLUSH_BATCH_SIZE ?? 120);
+
 async function run(): Promise<void> {
   const browser = await puppeteer.launch({ headless: true, args: ["--no-sandbox"] });
   const page = await browser.newPage();
@@ -26,7 +30,8 @@ async function run(): Promise<void> {
   const checkpoint = await loadCheckpoint("yandex");
   const completed = new Set(checkpoint.completed);
   const metrics = createMetrics("yandex");
-  const output = new Map<string, ReturnType<typeof createStationFromMapCard>>();
+  const pendingUpserts = new Map<string, PersistableStation>();
+  const uniqueStations = new Set<string>();
   const coordCache = new Map<string, { lat: number; lng: number } | null>();
 
   const initialCells = shardByEnv(generateUzbekistanGrid(0.35, 0.35));
@@ -74,7 +79,11 @@ async function run(): Promise<void> {
           }
         });
         if (station) {
-          output.set(station.externalId, station);
+          pendingUpserts.set(station.externalId, station);
+          uniqueStations.add(station.externalId);
+          if (pendingUpserts.size >= FLUSH_BATCH_SIZE) {
+            await flushPendingStations("yandex", pendingUpserts);
+          }
         }
       }
 
@@ -82,29 +91,42 @@ async function run(): Promise<void> {
       await saveCheckpoint("yandex", completed);
       await jitterDelay(600, 500);
     }
+    await flushPendingStations("yandex", pendingUpserts);
     // eslint-disable-next-line no-console
-    console.log(`[yandex] cell=${cell.id} stationsAccum=${output.size}`);
+    console.log(`[yandex] cell=${cell.id} stationsAccum=${uniqueStations.size}`);
   }
 
+  await flushPendingStations("yandex", pendingUpserts);
   await browser.close();
 
-  if (output.size === 0) {
+  if (uniqueStations.size === 0) {
     throw new Error("[yandex] Parsed 0 stations after full crawl.");
   }
 
-  await withDatabase(async () => {
-    const stations = Array.from(output.values()).filter(
-      (station): station is NonNullable<ReturnType<typeof createStationFromMapCard>> => Boolean(station)
-    );
-    await upsertRawStations(stations);
-    metrics.insertedRawStations = stations.length;
-  });
+  metrics.insertedRawStations = uniqueStations.size;
 
   metrics.endedAt = new Date().toISOString();
   await saveMetrics(metrics);
   assertCoverageQuality(metrics);
   // eslint-disable-next-line no-console
   console.log(`[yandex] upserted=${metrics.insertedRawStations}`);
+}
+
+async function flushPendingStations(
+  provider: "yandex",
+  pendingUpserts: Map<string, PersistableStation>
+): Promise<void> {
+  if (pendingUpserts.size === 0) {
+    return;
+  }
+
+  const stations = Array.from(pendingUpserts.values());
+  await withDatabase(async () => {
+    await upsertRawStations(stations);
+  });
+  pendingUpserts.clear();
+  // eslint-disable-next-line no-console
+  console.log(`[${provider}] flushed=${stations.length}`);
 }
 
 async function estimateCellDensity(cell: GeoCell, page: Page, keyword: string): Promise<number> {
