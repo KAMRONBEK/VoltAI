@@ -1,0 +1,13 @@
+name: Scrape K-Watt
+
+on:
+  schedule:
+    - cron: "45 3 1 * *"
+  workflow_dispatch:
+
+jobs:
+  call:
+    uses: ./.github/workflows/scrape-app.yml
+    with:
+      app_name: k-watt
+    secrets: inherit

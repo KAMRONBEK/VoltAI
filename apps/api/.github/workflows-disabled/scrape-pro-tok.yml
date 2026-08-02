@@ -1,0 +1,13 @@
+name: Scrape Pro-Tok
+
+on:
+  schedule:
+    - cron: "0 4 1 * *"
+  workflow_dispatch:
+
+jobs:
+  call:
+    uses: ./.github/workflows/scrape-app.yml
+    with:
+      app_name: pro-tok
+    secrets: inherit

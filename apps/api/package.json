@@ -1,0 +1,49 @@
+{
+  "name": "voltai-api",
+  "version": "1.0.0",
+  "description": "VoltAI backend for EV station aggregation",
+  "main": "dist/src/index.js",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/index.js",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "scrape:app": "tsx scrapers/run-app-scraper.ts",
+    "scrape:yandex": "tsx scrapers/maps/yandex.ts",
+    "scrape:google": "tsx scrapers/maps/google.ts",
+    "merge": "tsx scrapers/merge.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KAMRONBEK/VoltAI-api.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/KAMRONBEK/VoltAI-api/issues"
+  },
+  "homepage": "https://github.com/KAMRONBEK/VoltAI-api#readme",
+  "dependencies": {
+    "axios": "^1.13.5",
+    "cheerio": "^1.2.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "geolib": "^3.3.4",
+    "mongoose": "^9.2.1",
+    "puppeteer": "^24.37.5",
+    "string-similarity": "^4.0.4"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.3.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "yarn@1.22.22+sha1.ac34549e6aa8e7ead463a7407e1c7390f61a6610"
+}

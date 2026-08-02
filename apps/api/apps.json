@@ -1,0 +1,32 @@
+{
+  "tokbor": {
+    "apkpureUrl": "https://apkpure.com/tokbor/uz.tokbor.tokbor",
+    "packageName": "uz.tokbor.tokbor",
+    "launchActivity": ".MainActivity"
+  },
+  "pro-tok": {
+    "apkpureUrl": "https://apkpure.com/pro-tok/com.fintech_projects.fintech_project1",
+    "packageName": "com.fintech_projects.fintech_project1",
+    "launchActivity": ".MainActivity"
+  },
+  "spectre-energy": {
+    "apkpureUrl": "https://apkpure.com/spectre-energy/uz.spectreEnergy.uz",
+    "packageName": "uz.spectreEnergy.uz",
+    "launchActivity": ".MainActivity"
+  },
+  "megawatt-energy": {
+    "apkpureUrl": "https://apkpure.com/megawatt-energy/com.charging123.megawatt",
+    "packageName": "com.charging123.megawatt",
+    "launchActivity": ".MainActivity"
+  },
+  "k-watt": {
+    "apkpureUrl": "https://apkpure.com/k-watt/org.uicgroup.kwattapp",
+    "packageName": "org.uicgroup.kwattapp",
+    "launchActivity": ".MainActivity"
+  },
+  "beon": {
+    "apkpureUrl": "https://apkpure.com/beon/uz.beonapp.uz",
+    "packageName": "uz.beonapp.uz",
+    "launchActivity": ".MainActivity"
+  }
+}
