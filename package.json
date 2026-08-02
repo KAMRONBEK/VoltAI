@@ -1,0 +1,27 @@
+{
+  "name": "voltai",
+  "private": true,
+  "version": "1.0.0",
+  "description": "VoltAI monorepo — mobile app, website, and API",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "mobile": "npm run start -w voltai-mobile",
+    "mobile:android": "npm run android -w voltai-mobile",
+    "mobile:ios": "npm run ios -w voltai-mobile",
+    "mobile:lint": "npm run lint -w voltai-mobile",
+    "web": "npm run dev -w voltai-web",
+    "web:build": "npm run build -w voltai-web",
+    "web:lint": "npm run lint -w voltai-web",
+    "api": "npm run dev -w voltai-api",
+    "api:build": "npm run build -w voltai-api",
+    "api:lint": "npm run lint -w voltai-api",
+    "lint": "npm run mobile:lint && npm run web:lint && npm run api:lint",
+    "build": "npm run web:build && npm run api:build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "npm@10.9.2"
+}

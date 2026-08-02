@@ -1,7 +1,8 @@
 {
-  "name": "voltai",
+  "name": "voltai-mobile",
   "main": "expo-router/entry",
   "version": "1.0.0",
+  "private": true,
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
@@ -49,7 +50,5 @@
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
     "typescript": "~5.9.2"
-  },
-  "private": true,
-  "packageManager": "yarn@1.22.22+sha1.ac34549e6aa8e7ead463a7407e1c7390f61a6610"
+  }
 }
