@@ -31,7 +31,7 @@ function toggleInArray(arr: string[], value: string): string[] {
 export function StationsFilterSheet({ open, filters, options, onClose, onChange, onReset }: Props) {
   const colorScheme = useColorScheme() ?? 'dark';
   const sheetRef = useRef<BottomSheet | null>(null);
-  const snapPoints = useMemo(() => [260, '75%'] as const, []);
+  const snapPoints = useMemo(() => [260, '75%'], []);
 
   useEffect(() => {
     if (open) {

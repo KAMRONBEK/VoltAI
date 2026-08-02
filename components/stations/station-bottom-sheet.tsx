@@ -52,7 +52,7 @@ export function StationBottomSheet({ stations, onClose }: Props) {
   const colorScheme = useColorScheme() ?? 'dark';
   const sheetRef = useRef<BottomSheet | null>(null);
 
-  const snapPoints = useMemo(() => [180, 340, '85%'] as const, []);
+  const snapPoints = useMemo(() => [180, 340, '85%'], []);
 
   const stationsIdsKey = useMemo(() => (stations ? stations.map((s) => s.id).join('|') : ''), [stations]);
   const stationsList = useMemo(() => stations ?? [], [stations]);

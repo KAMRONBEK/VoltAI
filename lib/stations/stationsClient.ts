@@ -25,6 +25,24 @@ function toNumber(value: unknown): number | null {
   return null;
 }
 
+function geoJsonPointToLatLng(value: unknown): { latitude: number; longitude: number } | null {
+  // Supports common API shapes:
+  // - { type: "Point", coordinates: [lng, lat] }
+  // - { coordinates: [lng, lat] }
+  // - [lng, lat]
+  const coords = Array.isArray(value)
+    ? value
+    : isRecord(value) && Array.isArray(value.coordinates)
+      ? value.coordinates
+      : null;
+
+  if (!coords || coords.length < 2) return null;
+  const longitude = toNumber(coords[0]);
+  const latitude = toNumber(coords[1]);
+  if (latitude === null || longitude === null) return null;
+  return { latitude, longitude };
+}
+
 function toStatus(value: unknown): StationStatus {
   if (value === 'available' || value === 'in_use' || value === 'offline' || value === 'unknown') return value;
   // Common variants we might get from APIs.
@@ -50,17 +68,26 @@ function normalizeStation(raw: unknown, idx: number): Station | null {
   const id = (raw.id ?? raw._id ?? `${idx}`) as unknown;
   const name = raw.name ?? raw.title ?? raw.stationName;
 
+  const geoFromLocation = isRecord(raw.location) ? geoJsonPointToLatLng(raw.location) : null;
+  const geoFromCoordinates = geoJsonPointToLatLng(raw.coordinates);
+
   const latitude =
     toNumber(raw.latitude) ??
     toNumber(raw.lat) ??
     (isRecord(raw.location) ? toNumber(raw.location.latitude ?? raw.location.lat) : null) ??
-    (isRecord(raw.coordinates) ? toNumber(raw.coordinates.latitude ?? raw.coordinates.lat) : null);
+    (isRecord(raw.coordinates) ? toNumber(raw.coordinates.latitude ?? raw.coordinates.lat) : null) ??
+    geoFromLocation?.latitude ??
+    geoFromCoordinates?.latitude ??
+    null;
   const longitude =
     toNumber(raw.longitude) ??
     toNumber(raw.lng) ??
     toNumber(raw.lon) ??
     (isRecord(raw.location) ? toNumber(raw.location.longitude ?? raw.location.lng ?? raw.location.lon) : null) ??
-    (isRecord(raw.coordinates) ? toNumber(raw.coordinates.longitude ?? raw.coordinates.lng ?? raw.coordinates.lon) : null);
+    (isRecord(raw.coordinates) ? toNumber(raw.coordinates.longitude ?? raw.coordinates.lng ?? raw.coordinates.lon) : null) ??
+    geoFromLocation?.longitude ??
+    geoFromCoordinates?.longitude ??
+    null;
 
   if (typeof name !== 'string' || name.trim().length === 0) return null;
   if (latitude === null || longitude === null) return null;
@@ -105,9 +132,9 @@ function normalizeStation(raw: unknown, idx: number): Station | null {
     pricing: isRecord(raw.pricing)
       ? {
           currency: typeof raw.pricing.currency === 'string' ? raw.pricing.currency : undefined,
-          perKwh: toNumber(raw.pricing.perKwh),
-          perMinute: toNumber(raw.pricing.perMinute),
-          parkingFee: toNumber(raw.pricing.parkingFee),
+          perKwh: toNumber(raw.pricing.perKwh) ?? undefined,
+          perMinute: toNumber(raw.pricing.perMinute) ?? undefined,
+          parkingFee: toNumber(raw.pricing.parkingFee) ?? undefined,
         }
       : undefined,
     contact: isRecord(raw.contact)
@@ -143,9 +170,18 @@ async function saveCachedStations(stations: Station[]): Promise<void> {
 export async function listStations(opts?: {
   url?: string;
   timeoutMs?: number;
+  page?: number;
+  limit?: number;
 }): Promise<StationsListResult> {
-  const url = opts?.url ?? STATIONS_API_URL;
+  const baseUrl = opts?.url ?? STATIONS_API_URL;
   const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const url = (() => {
+    // Keep backward compatibility, but allow pagination if needed.
+    const u = new URL(baseUrl);
+    if (typeof opts?.page === 'number' && Number.isFinite(opts.page)) u.searchParams.set('page', String(opts.page));
+    if (typeof opts?.limit === 'number' && Number.isFinite(opts.limit)) u.searchParams.set('limit', String(opts.limit));
+    return u.toString();
+  })();
 
   try {
     const res = await fetchWithTimeout(url, timeoutMs);
