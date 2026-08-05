@@ -66,6 +66,7 @@ export function StationBottomSheet({ stations, onClose }: Props) {
   const [navLoading, setNavLoading] = useState(false);
   const [navError, setNavError] = useState<string | null>(null);
   const [activeStationId, setActiveStationId] = useState<string | null>(null);
+  const [prevStationsKey, setPrevStationsKey] = useState(stationsIdsKey);
 
   useEffect(() => {
     if (!sheetRef.current) return;
@@ -77,16 +78,18 @@ export function StationBottomSheet({ stations, onClose }: Props) {
     }
   }, [stationsList.length]);
 
-  useEffect(() => {
-    // Reset navigation section when switching stations.
-    setShowNavApps((prev) => (prev ? false : prev));
-    setNavApps((prev) => (prev.length ? [] : prev));
-    setNavLoading((prev) => (prev ? false : prev));
-    setNavError((prev) => (prev !== null ? null : prev));
-
-    const nextActiveId = firstStationIdFromKey;
-    setActiveStationId((prev) => (prev === nextActiveId ? prev : nextActiveId));
-  }, [firstStationIdFromKey, stationsIdsKey]);
+  // Reset the navigation section whenever the selected station(s) change. This uses
+  // React's "adjust state during render" pattern instead of an effect, which avoids the
+  // cascading render flagged by react-hooks/set-state-in-effect and is compatible with
+  // the React Compiler.
+  if (prevStationsKey !== stationsIdsKey) {
+    setPrevStationsKey(stationsIdsKey);
+    setShowNavApps(false);
+    setNavApps([]);
+    setNavLoading(false);
+    setNavError(null);
+    setActiveStationId(firstStationIdFromKey);
+  }
 
   const activeStation = useMemo(() => {
     if (!stationsList.length) return null;

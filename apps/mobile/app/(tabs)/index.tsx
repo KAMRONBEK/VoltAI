@@ -171,11 +171,14 @@ export default function StationsMapScreen() {
     return stationGroups.find((g) => g.id === selectedGroupId)?.stations ?? null;
   }, [selectedGroupId, stationGroups]);
 
-  useEffect(() => {
-    // If the rendered set of markers changes, force Android to re-snapshot marker views.
-    if (Platform.OS !== 'android') return;
-    setMarkerReady({});
-  }, [stationGroups.length]);
+  // When the rendered set of markers changes, force Android to re-snapshot marker views.
+  // React's "adjust state during render" pattern rather than an effect (avoids the
+  // cascading render flagged by react-hooks/set-state-in-effect).
+  const [prevGroupCount, setPrevGroupCount] = useState(stationGroups.length);
+  if (prevGroupCount !== stationGroups.length) {
+    setPrevGroupCount(stationGroups.length);
+    if (Platform.OS === 'android') setMarkerReady({});
+  }
 
   const markers = useMemo(
     () =>

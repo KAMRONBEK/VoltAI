@@ -1,3 +1,4 @@
+import type { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import { Tabs } from 'expo-router';
 import React from 'react';
 
@@ -12,9 +13,12 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+        tabBarActiveTintColor: Colors[colorScheme].tint,
         headerShown: false,
-        tabBarButton: HapticTab,
+        // expo-router 57 vendors its own react-navigation tab-button type, which
+        // diverges from the standalone @react-navigation/bottom-tabs one (pressColor:
+        // ColorValue vs string). Cast across that vendor boundary.
+        tabBarButton: (props) => <HapticTab {...(props as BottomTabBarButtonProps)} />,
       }}>
       <Tabs.Screen
         name="index"
