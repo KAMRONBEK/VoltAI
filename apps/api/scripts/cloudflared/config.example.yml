@@ -1,0 +1,25 @@
+# Cloudflare Tunnel config for serving the phone-hosted API at https://api.voltai.uz.
+# Copy to ~/.cloudflared/config.yml on the phone and fill in <TUNNEL-UUID>.
+# Requires the voltai.uz DNS zone to be on Cloudflare (see RUNBOOK.md §Gate 2).
+
+tunnel: <TUNNEL-UUID>
+credentials-file: /data/data/com.termux/files/home/.cloudflared/<TUNNEL-UUID>.json
+
+# Never let cloudflared self-replace the working bionic/arm64 binary.
+no-autoupdate: true
+# Android has no /etc/resolv.conf; force IPv4 edge + HTTP2 to avoid the "SRV lookup on
+# [::1]:53 refused" failure and carrier QUIC/UDP throttling.
+protocol: http2
+edge-ip-version: 4
+loglevel: info
+
+ingress:
+  # /ingest must never be reachable from the internet — it's loopback-only on the phone.
+  - hostname: api.voltai.uz
+    path: ^/ingest
+    service: http_status:404
+  - hostname: api.voltai.uz
+    service: http://127.0.0.1:8080
+    originRequest:
+      connectTimeout: 10s
+  - service: http_status:404
