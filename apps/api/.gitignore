@@ -11,3 +11,6 @@ traffic.har
 tmp
 
 .vercel
+
+# on-device SQLite database + backups
+data/

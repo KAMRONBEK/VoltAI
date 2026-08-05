@@ -1,5 +1,5 @@
-import { RawStationModel } from "../models/RawStation";
-import { StationModel } from "../models/Station";
+import { listAllRawStations } from "../repositories/rawStationRepo";
+import { replaceAllStations } from "../repositories/stationRepo";
 import { distanceMeters, nameSimilarity } from "../../scrapers/utils/geo";
 import type { SourceId } from "../types/station";
 
@@ -31,7 +31,7 @@ interface MergeStation {
 }
 
 export async function mergeStations(): Promise<{ mergedCount: number }> {
-  const rawStations = await RawStationModel.find().lean();
+  const rawStations = listAllRawStations();
   const merged: MergeStation[] = [];
 
   const sorted = rawStations.sort((a, b) => getPriority(a.source) - getPriority(b.source));
@@ -104,10 +104,8 @@ export async function mergeStations(): Promise<{ mergedCount: number }> {
     target.updatedAt = new Date();
   }
 
-  await StationModel.deleteMany({});
-  if (merged.length > 0) {
-    await StationModel.insertMany(merged);
-  }
+  // One atomic replace (BEGIN IMMEDIATE) instead of the old non-atomic deleteMany+insertMany.
+  replaceAllStations(merged);
 
   return { mergedCount: merged.length };
 }

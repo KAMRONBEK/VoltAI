@@ -27,6 +27,8 @@
     "express": "^5.2.1",
     "geolib": "^3.3.4",
     "mongoose": "^9.2.1",
+    "node-cron": "^4.6.0",
+    "node-sqlite3-wasm": "^0.8.60",
     "puppeteer": "^24.37.5",
     "string-similarity": "^4.0.4"
   },
@@ -34,6 +36,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^25.3.0",
+    "@types/node-cron": "^3.0.11",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
