@@ -14,3 +14,7 @@ tmp
 
 # on-device SQLite database + backups
 data/
+
+# scraper/gate working files (APKs, patched builds, flows)
+tmp/
+tools/
