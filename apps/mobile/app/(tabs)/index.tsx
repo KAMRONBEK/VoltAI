@@ -13,28 +13,21 @@ import * as Location from 'expo-location';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE, type Region } from 'react-native-maps';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { Marker, YandexMapView, type YandexMapViewRef } from 'expo-yandex-mapkit';
 
-const UZBEKISTAN_REGION: Region = {
+const UZBEKISTAN_CAMERA = {
   latitude: 41.2995,
   longitude: 69.2401,
-  latitudeDelta: 4.0,
-  longitudeDelta: 4.0,
+  zoom: 6.5, // ≈ the former region deltas of 4.0 — whole-country view
 };
 
-const DARK_MAP_STYLE = [
-  { elementType: 'geometry', stylers: [{ color: '#1d1d1d' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#8a8a8a' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#1d1d1d' }] },
-  { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#6b6b6b' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2a2a2a' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#2a2a2a' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0b0b0b' }] },
-];
+// Yandex MapKit uses its built-in `nightMode` dark scheme. The old Google `customMapStyle`
+// array is not portable to Yandex's tags/elements style schema; if a bespoke palette is
+// needed later, author a Yandex `mapStyle` JSON string and pass it as the `mapStyle` prop.
 
 export default function StationsMapScreen() {
-  const mapRef = useRef<MapView | null>(null);
+  const mapRef = useRef<YandexMapViewRef | null>(null);
   const insets = useSafeAreaInsets();
   const isOffline = useIsOffline();
 
@@ -177,7 +170,7 @@ export default function StationsMapScreen() {
   const [prevGroupCount, setPrevGroupCount] = useState(stationGroups.length);
   if (prevGroupCount !== stationGroups.length) {
     setPrevGroupCount(stationGroups.length);
-    if (Platform.OS === 'android') setMarkerReady({});
+    setMarkerReady({});
   }
 
   const markers = useMemo(
@@ -187,22 +180,22 @@ export default function StationsMapScreen() {
         const expectedKey = `${MARKER_SNAPSHOT_KEY_VERSION}:${isSelected ? 'sel' : 'norm'}`;
         const currentKey = markerReady[group.id];
 
-        const androidNeedsSnapshot = Platform.OS === 'android' && currentKey !== expectedKey;
-        const tracksViewChanges = Platform.OS === 'android' ? androidNeedsSnapshot : isSelected;
+        // Yandex snapshots marker children into a bitmap on both platforms; re-snapshot
+        // until the view has laid out (and again whenever selection changes the key).
+        const tracksViewChanges = currentKey !== expectedKey;
 
         return (
           <Marker
             key={group.id}
-            coordinate={group.location}
-            onPress={() => setSelectedGroupId(group.id)}
-            accessibilityLabel={group.stations[0]?.name ?? 'Station'}
+            point={group.location}
+            identifier={group.id}
+            onPress={(e) => setSelectedGroupId(e.nativeEvent.identifier ?? group.id)}
             anchor={{ x: 0.5, y: 0.5 }}
             tracksViewChanges={tracksViewChanges}>
             <StationMarker
               statuses={group.stations.map((s) => s.status).slice(0, 2)}
               selected={isSelected}
               onFirstLayout={() => {
-                if (Platform.OS !== 'android') return;
                 setMarkerReady((prev) => {
                   if (prev[group.id] === expectedKey) return prev;
                   return { ...prev, [group.id]: expectedKey };
@@ -217,22 +210,18 @@ export default function StationsMapScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <MapView
-        ref={(r) => {
-          mapRef.current = r;
-        }}
-        // Android uses Google Maps by default; iOS requires a native build for Google Maps.
-        // Expo Go on iOS typically supports Apple Maps, so we avoid forcing Google there.
-        provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
-        initialRegion={UZBEKISTAN_REGION}
+      <YandexMapView
+        ref={mapRef}
+        cameraPosition={UZBEKISTAN_CAMERA}
+        animated={false}
         style={StyleSheet.absoluteFill}
-        customMapStyle={DARK_MAP_STYLE}
-        showsUserLocation
-        // Use custom FABs instead of the native button.
-        showsMyLocationButton={false}
-        onPress={() => setSelectedGroupId(null)}>
+        nightMode
+        showUserPosition
+        // Keep the camera centre above the bottom sheet so a selected pin isn't hidden.
+        mapPadding={{ bottom: insets.bottom + 120 }}
+        onMapPress={() => setSelectedGroupId(null)}>
         {markers}
-      </MapView>
+      </YandexMapView>
 
       <View pointerEvents="none" style={[styles.topOverlay, { top: insets.top + 10 }]}>
         <OfflineBanner visible={isOffline} />
@@ -278,7 +267,7 @@ export default function StationsMapScreen() {
   );
 }
 
-async function requestAndCenterUserLocation(mapRef: React.RefObject<MapView | null>) {
+async function requestAndCenterUserLocation(mapRef: React.RefObject<YandexMapViewRef | null>) {
   const { status } = await Location.requestForegroundPermissionsAsync();
   if (status !== Location.PermissionStatus.GRANTED) return;
 
@@ -286,14 +275,14 @@ async function requestAndCenterUserLocation(mapRef: React.RefObject<MapView | nu
     accuracy: Location.Accuracy.Balanced,
   });
 
-  const region: Region = {
-    latitude: location.coords.latitude,
-    longitude: location.coords.longitude,
-    latitudeDelta: 0.08,
-    longitudeDelta: 0.08,
-  };
-
-  mapRef.current?.animateToRegion(region, 450);
+  await mapRef.current?.setCenter(
+    {
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+      zoom: 12.5, // ≈ the former 0.08 region delta
+    },
+    { durationSeconds: 0.45 }
+  );
 }
 
 const styles = StyleSheet.create({

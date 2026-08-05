@@ -21,12 +21,15 @@ npm install
 
 ### Environment
 
-**Mobile** (`apps/mobile`)
+**Mobile** (`apps/mobile`) — copy [`.env.example`](apps/mobile/.env.example):
 
 ```bash
-# used by app.config.ts for Google Maps
-GOOGLE_MAPS_API_KEY=your_key
+# used by app.config.ts for the Yandex MapKit map (get one at developer.tech.yandex.ru)
+YANDEX_MAPKIT_API_KEY=your_key
 ```
+
+> The map uses `expo-yandex-mapkit`, which ships native code — **Expo Go is not supported**.
+> Run a dev build: `npx expo prebuild --clean && npx expo run:android` (or `run:ios`).
 
 **API** (`apps/api`) — copy [`.env.example`](apps/api/.env.example):
 
