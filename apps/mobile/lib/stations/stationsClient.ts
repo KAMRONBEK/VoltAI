@@ -3,7 +3,10 @@ import { getJson, setJson } from '@/lib/storage/jsonStorage';
 import { StorageKeys } from '@/lib/storage/storageKeys';
 import type { Station, StationsListResult, StationStatus } from '@/types/stations';
 
-export const STATIONS_API_URL = 'https://api.voltai.uz/api/stations';
+// Base URL is overridable via EXPO_PUBLIC_API_BASE_URL for local/staging dev (e.g. pointing
+// at a locally-run API through `adb reverse`); defaults to production.
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? 'https://api.voltai.uz';
+export const STATIONS_API_URL = `${API_BASE_URL}/api/stations`;
 
 const DEFAULT_TIMEOUT_MS = 6_000;
 

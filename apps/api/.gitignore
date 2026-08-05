@@ -18,3 +18,4 @@ data/
 # scraper/gate working files (APKs, patched builds, flows)
 tmp/
 tools/
+tmp-*.log
