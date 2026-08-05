@@ -11,7 +11,9 @@
     "scrape:app": "tsx scrapers/run-app-scraper.ts",
     "scrape:yandex": "tsx scrapers/maps/yandex.ts",
     "scrape:google": "tsx scrapers/maps/google.ts",
-    "merge": "tsx scrapers/merge.ts"
+    "merge": "tsx scrapers/merge.ts",
+    "gate:pull": "bash scripts/gate/pull-apks.sh",
+    "gate:screen": "tsx scripts/gate/screen-apk.ts"
   },
   "private": true,
   "keywords": [],
