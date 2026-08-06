@@ -50,6 +50,9 @@ async function refresh(trigger: string): Promise<void> {
         total += result.stations.length;
         // eslint-disable-next-line no-console
         console.log(`[scrape:${trigger}] ${result.source}: ${result.stations.length} raw stations`);
+      } else if (result.skipped) {
+        // eslint-disable-next-line no-console
+        console.log(`[scrape:${trigger}] ${result.source} skipped (not logged in)`);
       } else if (!result.ok) {
         // eslint-disable-next-line no-console
         console.error(`[scrape:${trigger}] ${result.source} failed: ${result.error}`);

@@ -1,6 +1,7 @@
 import axios from "axios";
 import type { AppScraperConfig, HttpEndpoint } from "../apps/base";
 import { appScraperConfigs } from "../apps";
+import { getAccessTokenFor, refreshFor, isAuthSource } from "../auth";
 import type { RawStationInput } from "../../src/types/station";
 
 /**
@@ -24,13 +25,19 @@ export interface SourceScrapeResult {
   ok: boolean;
   stations: RawStationInput[];
   error?: string;
+  /** True when the source was skipped because it isn't logged in yet (not a real failure). */
+  skipped?: boolean;
 }
 
-async function fetchEndpoint(endpoint: HttpEndpoint): Promise<unknown> {
+async function fetchEndpoint(endpoint: HttpEndpoint, bearer?: string): Promise<unknown> {
+  const headers: Record<string, string> = { ...DEFAULT_HEADERS, ...endpoint.headers };
+  if (bearer) {
+    headers.Authorization = `Bearer ${bearer}`;
+  }
   const response = await axios.request({
     url: endpoint.url,
     method: endpoint.method ?? "GET",
-    headers: { ...DEFAULT_HEADERS, ...endpoint.headers },
+    headers,
     data: endpoint.body,
     timeout: REQUEST_TIMEOUT_MS,
     // Operator APIs are all HTTPS with valid public certs; keep validation on.
@@ -41,14 +48,53 @@ async function fetchEndpoint(endpoint: HttpEndpoint): Promise<unknown> {
   return response.data;
 }
 
+/**
+ * Sentinel error so a source that simply hasn't been logged in yet is skipped
+ * cleanly instead of counting as a hard failure.
+ */
+export class NotLoggedInError extends Error {
+  constructor(source: string) {
+    super(`${source}: no stored login (run npm run auth:${source} -- send/verify)`);
+    this.name = "NotLoggedInError";
+  }
+}
+
 /** Fetch every endpoint for one source and return the raw (unparsed) payloads. */
 export async function fetchSourcePayloads(config: AppScraperConfig): Promise<unknown[]> {
   if (!config.http?.length) {
     return [];
   }
+  const source = config.sourceId;
   const payloads: unknown[] = [];
+
   for (const endpoint of config.http) {
-    payloads.push(await fetchEndpoint(endpoint));
+    if (!endpoint.auth) {
+      payloads.push(await fetchEndpoint(endpoint));
+      continue;
+    }
+
+    // Authenticated endpoint: attach the stored bearer, refresh once on 401.
+    if (!isAuthSource(source)) {
+      throw new Error(`${source}: endpoint marked auth but no auth provider registered`);
+    }
+    let token = getAccessTokenFor(source);
+    if (!token) {
+      throw new NotLoggedInError(source);
+    }
+    try {
+      payloads.push(await fetchEndpoint(endpoint, token));
+    } catch (error) {
+      const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+      if (status !== 401 && status !== 403) {
+        throw error;
+      }
+      const refreshed = await refreshFor(source);
+      if (!refreshed) {
+        throw new NotLoggedInError(source);
+      }
+      token = refreshed;
+      payloads.push(await fetchEndpoint(endpoint, token));
+    }
   }
   return payloads;
 }
@@ -81,6 +127,9 @@ export async function scrapeAllHttpSources(only?: string[]): Promise<SourceScrap
         const stations = await scrapeHttpSource(appScraperConfigs[name]);
         return { source: name, ok: true, stations };
       } catch (error) {
+        if (error instanceof NotLoggedInError) {
+          return { source: name, ok: false, stations: [], skipped: true, error: error.message };
+        }
         const message = error instanceof Error ? error.message : String(error);
         return { source: name, ok: false, stations: [], error: message };
       }

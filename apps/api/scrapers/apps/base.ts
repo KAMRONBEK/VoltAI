@@ -13,6 +13,13 @@ export interface HttpEndpoint {
   headers?: Record<string, string>;
   /** Optional JSON body for POST endpoints. */
   body?: unknown;
+  /**
+   * When true, this endpoint needs a bearer token obtained via login-replay
+   * (scrapers/auth). The http scraper attaches `Authorization: Bearer <token>`
+   * for the source and refreshes once on a 401. Sources with no stored login
+   * are skipped (with a log) instead of erroring.
+   */
+  auth?: boolean;
 }
 
 export interface AppScraperConfig {
