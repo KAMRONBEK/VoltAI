@@ -92,6 +92,7 @@ export default function StationsMapScreen() {
   const activeFilterCount = useMemo(() => {
     let n = 0;
     if (filters.onlyAvailable) n += 1;
+    if (filters.categories.length) n += 1;
     if (filters.minPowerKw !== null && filters.minPowerKw > 0) n += 1;
     if (filters.connectorTypes.length) n += 1;
     if (filters.operators.length) n += 1;
@@ -103,6 +104,10 @@ export default function StationsMapScreen() {
   const filteredStations = useMemo(() => {
     return stations.filter((s) => {
       if (filters.onlyAvailable && s.status !== 'available') return false;
+
+      if (filters.categories.length) {
+        if (!s.category || !filters.categories.includes(s.category)) return false;
+      }
 
       if (filters.connectorTypes.length) {
         const match = s.connectors.some((c) => filters.connectorTypes.includes(c.type));

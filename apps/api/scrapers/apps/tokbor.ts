@@ -36,6 +36,25 @@ const CATEGORY_MAP: Record<string, ChargerCategory> = {
   AC: "ac"
 };
 
+// Readable plug/port labels for Tokbor's terse plug names.
+const PLUG_LABELS: Record<string, string> = {
+  GBT: "GB/T",
+  GBTAC: "GB/T AC",
+  CCS: "CCS",
+  CCS1: "CCS1",
+  CCS2: "CCS2",
+  CCS12: "CCS",
+  CHADEMO: "CHAdeMO",
+  TYPE2: "Type 2",
+  J1772: "Type 1",
+  NACS: "NACS"
+};
+
+function plugLabel(name?: string): string | undefined {
+  if (!name) return undefined;
+  return PLUG_LABELS[name.toUpperCase()] ?? name;
+}
+
 interface TokborPin {
   id?: number | string;
   lat?: number;
@@ -75,7 +94,7 @@ function parseTokbor(payload: unknown): RawStationInput[] {
     const plugs = detail?.plugs?.length ? detail.plugs : undefined;
     const count = plugs?.length ?? (detail?.connectorCount && detail.connectorCount > 0 ? detail.connectorCount : 1);
     const connectors: Connector[] = Array.from({ length: count }, (_unused, i) => ({
-      type: plugs?.[i] ?? (typeof row.type === "string" ? row.type : "unknown"),
+      type: plugLabel(plugs?.[i]) ?? (typeof row.type === "string" ? row.type : "unknown"),
       power: detail?.capacity,
       status,
       category,

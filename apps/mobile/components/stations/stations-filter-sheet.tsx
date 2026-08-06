@@ -5,8 +5,12 @@ import { Pressable, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { CATEGORIES } from '@/lib/categories';
+import type { ChargerCategory } from '@/types/stations';
 import type { StationsFilters } from '@/types/stationsFilters';
 import { DEFAULT_STATIONS_FILTERS } from '@/types/stationsFilters';
+
+const CATEGORY_ORDER: ChargerCategory[] = ['ultra', 'dc', 'hybrid', 'ac'];
 
 type FilterOptions = {
   connectorTypes: string[];
@@ -68,6 +72,38 @@ export function StationsFilterSheet({ open, filters, options, onClose, onChange,
             value={filters.onlyAvailable}
             onValueChange={(v) => onChange({ ...filters, onlyAvailable: v })}
           />
+        </View>
+
+        <View style={styles.section}>
+          <ThemedText type="defaultSemiBold">Charger type</ThemedText>
+          <View style={styles.pillsRow}>
+            {CATEGORY_ORDER.map((id) => {
+              const cat = CATEGORIES[id];
+              const isOn = filters.categories.includes(id);
+              return (
+                <Pressable
+                  key={id}
+                  onPress={() =>
+                    onChange({
+                      ...filters,
+                      categories: isOn
+                        ? filters.categories.filter((c) => c !== id)
+                        : [...filters.categories, id],
+                    })
+                  }
+                  style={[
+                    styles.pill,
+                    styles.catPill,
+                    { borderColor: isOn ? cat.color : 'rgba(255,255,255,0.12)' },
+                    isOn ? { backgroundColor: `${cat.color}26` } : null,
+                  ]}
+                  accessibilityRole="button">
+                  <View style={[styles.catRing, { borderColor: cat.color }]} />
+                  <ThemedText type="defaultSemiBold">{cat.label}</ThemedText>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
 
         <View style={styles.section}>
@@ -207,6 +243,19 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.12)',
+  },
+  catPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    borderWidth: 1.5,
+  },
+  catRing: {
+    width: 13,
+    height: 13,
+    borderRadius: 5,
+    borderWidth: 3,
+    backgroundColor: '#fff',
   },
   closeButton: {
     marginTop: 8,
