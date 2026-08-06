@@ -7,22 +7,69 @@
  *   - preserves `connectors[].power`
  */
 
+type WireConnector = {
+  type: string;
+  power?: number;
+  status?: string;
+  count?: number;
+  pricePerKwh?: number;
+  parkingFee?: number;
+  currency?: string;
+};
+
 export type StationWire = {
   _id: string;
   name: string;
   address?: string;
   location: { type: "Point"; coordinates: [number, number] };
-  connectors: Array<{ type: string; power?: number }>;
+  connectors: WireConnector[];
   workingHours?: string;
   rating?: number;
   description?: string;
   images: string[];
   sources: string[];
   primarySource: string;
+  /** Human-facing operator name derived from primarySource (for the brand label). */
+  operator: string;
+  operatorId: string;
+  /** Overall station availability derived from its connectors. */
+  status: "available" | "in_use" | "offline" | "unknown";
+  /** Best-available pricing across connectors, if any source reports it. */
+  pricing?: { currency: string; perKwh?: number; parkingFee?: number };
   createdAt: string;
   updatedAt: string;
   distanceMeters?: number;
 };
+
+const OPERATOR_NAMES: Record<string, string> = {
+  tokbor: "Tokbor",
+  "spectre-energy": "Spectre Energy",
+  "megawatt-energy": "Megawatt",
+  "k-watt": "K-Watt",
+  "pro-tok": "Pro-Tok",
+  beon: "Beon",
+  "yandex-maps": "Yandex Maps",
+  "google-maps": "Google Maps",
+};
+
+function deriveStatus(connectors: WireConnector[]): StationWire["status"] {
+  const statuses = connectors.map((c) => (c.status ?? "").toLowerCase());
+  if (statuses.some((s) => s === "available")) return "available";
+  if (statuses.some((s) => s === "in_use" || s === "unavailable" || s === "busy")) return "in_use";
+  if (statuses.length && statuses.every((s) => s === "offline" || s === "maintenance" || s === "poweroff"))
+    return "offline";
+  return "unknown";
+}
+
+function derivePricing(connectors: WireConnector[]): StationWire["pricing"] {
+  const priced = connectors.find((c) => typeof c.pricePerKwh === "number");
+  if (!priced) return undefined;
+  return {
+    currency: priced.currency ?? "UZS",
+    perKwh: priced.pricePerKwh,
+    parkingFee: priced.parkingFee,
+  };
+}
 
 function parseJsonArray<T>(value: unknown): T[] {
   if (typeof value !== "string" || !value) return [];
@@ -35,18 +82,24 @@ function parseJsonArray<T>(value: unknown): T[] {
 }
 
 export function rowToStation(r: Record<string, any>): StationWire {
+  const connectors = parseJsonArray<WireConnector>(r.connectors);
+  const primarySource = r.primary_source as string;
   return {
     _id: String(r._id),
     name: r.name,
     address: r.address ?? undefined,
     location: { type: "Point", coordinates: [r.lng, r.lat] },
-    connectors: parseJsonArray<{ type: string; power?: number }>(r.connectors),
+    connectors,
     workingHours: r.working_hours ?? undefined,
     rating: r.rating ?? undefined,
     description: r.description ?? undefined,
     images: parseJsonArray<string>(r.images),
     sources: parseJsonArray<string>(r.sources),
-    primarySource: r.primary_source,
+    primarySource,
+    operatorId: primarySource,
+    operator: OPERATOR_NAMES[primarySource] ?? primarySource,
+    status: deriveStatus(connectors),
+    pricing: derivePricing(connectors),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };

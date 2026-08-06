@@ -1,7 +1,7 @@
 import { listAllRawStations } from "../repositories/rawStationRepo";
 import { replaceAllStations } from "../repositories/stationRepo";
 import { distanceMeters, nameSimilarity } from "../../scrapers/utils/geo";
-import type { SourceId } from "../types/station";
+import type { Connector, SourceId } from "../types/station";
 
 const sourcePriority: SourceId[] = [
   "tokbor",
@@ -20,7 +20,7 @@ interface MergeStation {
   name: string;
   address?: string;
   location: { type: "Point"; coordinates: [number, number] };
-  connectors: Array<{ type: string; power?: number }>;
+  connectors: Connector[];
   workingHours?: string;
   rating?: number;
   description?: string;
@@ -28,6 +28,11 @@ interface MergeStation {
   sources: SourceId[];
   primarySource: SourceId;
   updatedAt: Date;
+}
+
+/** Identity of a connector for dedup — same plug type + power = same slot. */
+function connectorKey(c: Connector): string {
+  return `${c.type}-${c.power ?? ""}`;
 }
 
 export async function mergeStations(): Promise<{ mergedCount: number }> {
@@ -58,10 +63,7 @@ export async function mergeStations(): Promise<{ mergedCount: number }> {
           type: "Point",
           coordinates: rawCoords
         },
-        connectors: (raw.connectors ?? []).map((item) => ({
-          type: item.type,
-          power: item.power ?? undefined
-        })),
+        connectors: (raw.connectors ?? []).map((item) => ({ ...item })),
         workingHours: raw.workingHours ?? undefined,
         rating: raw.rating ?? undefined,
         description: extractDescription(raw.rawData),
@@ -91,11 +93,11 @@ export async function mergeStations(): Promise<{ mergedCount: number }> {
     }
 
     if (raw.connectors?.length) {
-      const seen = new Set(target.connectors.map((c) => `${c.type}-${c.power ?? ""}`));
+      const seen = new Set(target.connectors.map(connectorKey));
       for (const connector of raw.connectors) {
-        const key = `${connector.type}-${connector.power ?? ""}`;
+        const key = connectorKey(connector);
         if (!seen.has(key)) {
-          target.connectors.push({ type: connector.type, power: connector.power ?? undefined });
+          target.connectors.push({ ...connector });
           seen.add(key);
         }
       }

@@ -17,6 +17,13 @@ export interface Connector {
   type: string;
   power?: number;
   status?: string;
+  /** How many physical connectors of this type/power the station has. */
+  count?: number;
+  /** Price per kWh in minor-unit-free local currency (e.g. UZS sum). */
+  pricePerKwh?: number;
+  /** Idle/parking fee (per the operator's own unit). */
+  parkingFee?: number;
+  currency?: string;
 }
 
 export interface RawStationInput {

@@ -16,6 +16,17 @@ interface KwattConnector {
   power_name?: string;
   type_connection_name?: string;
   status?: unknown;
+  price?: {
+    price_connector?: string;
+    price_parking?: string;
+  };
+}
+
+/** "2 350" / "2,350" -> 2350 */
+function parseMoney(value: unknown): number | undefined {
+  if (typeof value !== "string") return undefined;
+  const n = Number(value.replace(/[\s,]/g, ""));
+  return Number.isFinite(n) ? n : undefined;
 }
 
 interface KwattChargePoint {
@@ -76,7 +87,10 @@ function parseKwatt(payload: unknown): RawStationInput[] {
         connectors.push({
           type: connector.type_connection_name?.trim() || "unknown",
           power: parsePower(connector.power_name) ?? parsePower(point.type),
-          status: online ? "available" : "offline"
+          status: online ? "available" : "offline",
+          pricePerKwh: parseMoney(connector.price?.price_connector),
+          parkingFee: parseMoney(connector.price?.price_parking),
+          currency: "UZS"
         });
       }
     }
