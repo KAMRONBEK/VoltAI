@@ -3,7 +3,7 @@ import { ThemedView } from '@/components/themed-view';
 import { OfflineBanner } from '@/components/offline-banner';
 import { FilterFab } from '@/components/stations/filter-fab';
 import { StationBottomSheet } from '@/components/stations/station-bottom-sheet';
-import { StationMarker } from '@/components/stations/station-marker';
+import { markerImage } from '@/lib/markerImages';
 import { StationsFilterSheet } from '@/components/stations/stations-filter-sheet';
 import { useIsOffline } from '@/hooks/use-is-offline';
 import { listStations } from '@/lib/stations/stationsClient';
@@ -31,15 +31,12 @@ export default function StationsMapScreen() {
   const insets = useSafeAreaInsets();
   const isOffline = useIsOffline();
 
-  const MARKER_SNAPSHOT_KEY_VERSION = 2;
-
   const [stations, setStations] = useState<Station[]>([]);
   const [filters, setFilters] = useState<StationsFilters>(DEFAULT_STATIONS_FILTERS);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [isLoadingStations, setIsLoadingStations] = useState(true);
   const [stationsApiError, setStationsApiError] = useState<string | undefined>(undefined);
-  const [markerReady, setMarkerReady] = useState<Record<string, string>>({});
 
   type StationGroup = { id: string; location: Station['location']; stations: Station[] };
 
@@ -164,26 +161,10 @@ export default function StationsMapScreen() {
     return stationGroups.find((g) => g.id === selectedGroupId)?.stations ?? null;
   }, [selectedGroupId, stationGroups]);
 
-  // When the rendered set of markers changes, force Android to re-snapshot marker views.
-  // React's "adjust state during render" pattern rather than an effect (avoids the
-  // cascading render flagged by react-hooks/set-state-in-effect).
-  const [prevGroupCount, setPrevGroupCount] = useState(stationGroups.length);
-  if (prevGroupCount !== stationGroups.length) {
-    setPrevGroupCount(stationGroups.length);
-    setMarkerReady({});
-  }
-
   const markers = useMemo(
     () =>
       stationGroups.map((group) => {
         const isSelected = group.id === selectedGroupId;
-        const expectedKey = `${MARKER_SNAPSHOT_KEY_VERSION}:${isSelected ? 'sel' : 'norm'}`;
-        const currentKey = markerReady[group.id];
-
-        // Yandex snapshots marker children into a bitmap on both platforms; re-snapshot
-        // until the view has laid out (and again whenever selection changes the key).
-        const tracksViewChanges = currentKey !== expectedKey;
-
         const primary = group.stations[0];
         return (
           <Marker
@@ -192,23 +173,13 @@ export default function StationsMapScreen() {
             identifier={group.id}
             onPress={(e) => setSelectedGroupId(e.nativeEvent.identifier ?? group.id)}
             anchor={{ x: 0.5, y: 0.5 }}
-            tracksViewChanges={tracksViewChanges}>
-            <StationMarker
-              operatorId={primary?.operatorId}
-              status={primary?.status ?? 'unknown'}
-              count={group.stations.length}
-              selected={isSelected}
-              onFirstLayout={() => {
-                setMarkerReady((prev) => {
-                  if (prev[group.id] === expectedKey) return prev;
-                  return { ...prev, [group.id]: expectedKey };
-                });
-              }}
-            />
-          </Marker>
+            scale={isSelected ? 1.2 : 0.82}
+            zIndex={isSelected ? 10 : 1}
+            source={markerImage(primary?.operatorId, primary?.status ?? 'unknown')}
+          />
         );
       }),
-    [markerReady, selectedGroupId, stationGroups]
+    [selectedGroupId, stationGroups]
   );
 
   return (
