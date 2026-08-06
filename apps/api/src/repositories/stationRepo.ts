@@ -86,6 +86,38 @@ export function getStationById(id: string): StationWire | null {
   return row ? rowToStation(row) : null;
 }
 
+/**
+ * Compact live-status projection for consumer apps to poll cheaply — id + overall status +
+ * per-connector status only (no coords/name/pricing/images). Lets a client fetch the full
+ * catalog once from `/api/stations`, then refresh statuses every minute against a payload that
+ * is an order of magnitude smaller. Status/category are derived exactly as the full endpoint
+ * (via rowToStation), so the two never disagree.
+ */
+export type StationStatusWire = {
+  id: string;
+  status: StationWire["status"];
+  category: StationWire["category"];
+  connectors: Array<{ type: string; status?: string }>;
+  updatedAt: string;
+};
+
+export function listStationStatuses(): StationStatusWire[] {
+  // Only the columns rowToStation needs to derive status/category (connectors) plus id/updated.
+  const rows = getDb().all(
+    `SELECT _id, connectors, updated_at FROM stations ORDER BY updated_at DESC`
+  ) as Record<string, any>[];
+  return rows.map((r) => {
+    const s = rowToStation(r);
+    return {
+      id: s._id,
+      status: s.status,
+      category: s.category,
+      connectors: s.connectors.map((c) => ({ type: c.type, status: c.status })),
+      updatedAt: s.updatedAt,
+    };
+  });
+}
+
 export function countStations(): number {
   const row = getDb().get(`SELECT COUNT(*) AS n FROM stations`) as { n: number } | null;
   return row?.n ?? 0;

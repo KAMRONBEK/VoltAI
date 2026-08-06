@@ -7,6 +7,9 @@ import type { Station, StationsListResult, StationStatus } from '@/types/station
 // at a locally-run API through `adb reverse`); defaults to production.
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? 'https://api.voltai.uz';
 export const STATIONS_API_URL = `${API_BASE_URL}/api/stations`;
+// Compact near-real-time status feed (id + overall + per-connector status). Polled on the map
+// so charger dots reflect the backend's ~5-min status refresh without re-downloading the catalog.
+export const STATION_STATUSES_API_URL = `${API_BASE_URL}/api/stations/statuses`;
 
 const DEFAULT_TIMEOUT_MS = 6_000;
 
@@ -217,6 +220,48 @@ async function loadCachedStations(): Promise<Station[] | null> {
 async function saveCachedStations(stations: Station[]): Promise<void> {
   const payload: StationsCache = { updatedAt: Date.now(), stations };
   await setJson(StorageKeys.stationsCache, payload);
+}
+
+/** One station's live status: overall + per-connector, in the same order as its catalog connectors. */
+export type StationStatusUpdate = {
+  id: string;
+  status: StationStatus;
+  connectors: StationStatus[];
+  updatedAt?: string;
+};
+
+/**
+ * Poll the compact status feed. Best-effort: returns null on any failure so the caller simply
+ * keeps showing the last-known statuses (never blanks the map). ~24 KB gzipped, edge-cached.
+ */
+export async function fetchStationStatuses(opts?: {
+  url?: string;
+  timeoutMs?: number;
+}): Promise<StationStatusUpdate[] | null> {
+  const url = opts?.url ?? STATION_STATUSES_API_URL;
+  const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  try {
+    const json = await fetchJson(url, timeoutMs);
+    const arr = extractStationsArray(json);
+    const out: StationStatusUpdate[] = [];
+    for (const item of arr) {
+      if (!isRecord(item)) continue;
+      const id = item.id ?? item._id;
+      if (typeof id !== 'string' && typeof id !== 'number') continue;
+      const connectors = Array.isArray(item.connectors)
+        ? item.connectors.map((c) => (isRecord(c) ? toStatus(c.status) : toStatus(undefined)))
+        : [];
+      out.push({
+        id: String(id),
+        status: toStatus(item.status),
+        connectors,
+        updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : undefined,
+      });
+    }
+    return out;
+  } catch {
+    return null;
+  }
 }
 
 export async function listStations(opts?: {

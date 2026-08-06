@@ -2,11 +2,43 @@ import { Router } from "express";
 import {
   getStationById,
   listStations,
+  listStationStatuses,
   nearbyStations,
   searchStations,
 } from "../repositories/stationRepo";
+import { getMeta } from "../repositories/metaRepo";
+import { applyCache, envInt, type CachePolicy } from "../utils/httpCache";
 
 const router = Router();
+
+// The canonical catalog (names, coords, connectors) changes slowly, so it can sit warm on the
+// edge for a few minutes and still be correct. Tunable via env for the phone deployment.
+const LIST_CACHE: CachePolicy = {
+  maxAge: envInt("STATIONS_CACHE_MAXAGE", 60),
+  sMaxAge: envInt("STATIONS_CACHE_SMAXAGE", 180),
+  swr: 600,
+  sie: 604800, // serve stale up to 7d if the phone is unreachable
+};
+
+// Live statuses change every scrape (5 min), so keep this feed near-real-time. Small payload,
+// so a short edge TTL costs the phone almost nothing while giving consumers ~fresh statuses.
+const STATUSES_CACHE: CachePolicy = {
+  maxAge: envInt("STATUSES_CACHE_MAXAGE", 20),
+  sMaxAge: envInt("STATUSES_CACHE_SMAXAGE", 30),
+  swr: 60,
+  sie: 3600,
+};
+
+// How long since the last merge before we flag the data as stale (default 2x the 5-min cycle).
+const STALE_AFTER_SEC = envInt("STATIONS_STALE_AFTER_SEC", 900);
+
+function freshness(): { lastMergeAt: string | null; ageSec: number | null; stale: boolean } {
+  const lastMergeAt = getMeta("lastMergeAt");
+  const ageSec = lastMergeAt
+    ? Math.max(0, Math.floor((Date.now() - Date.parse(lastMergeAt)) / 1000))
+    : null;
+  return { lastMergeAt, ageSec, stale: ageSec != null && ageSec > STALE_AFTER_SEC };
+}
 
 router.get("/", (req, res, next) => {
   try {
@@ -14,9 +46,39 @@ router.get("/", (req, res, next) => {
     const limit = Math.min(Number(req.query.limit ?? 50), 200);
     const q = req.query.q ? String(req.query.q) : undefined;
 
-    const { items, total } = listStations({ page, limit, q });
+    const { lastMergeAt } = freshness();
+    // Version the cache by merge time + query so a new scrape busts it but identical repeat
+    // requests get a cheap 304.
+    const tag = `s-${lastMergeAt ?? "0"}-${page}-${limit}-${q ?? ""}`;
+    if (applyCache(req, res, LIST_CACHE, { lastModified: lastMergeAt, tag })) return;
 
+    const { items, total } = listStations({ page, limit, q });
     res.json({ page, limit, total, items });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/stations/statuses — compact, near-real-time status feed for other apps.
+ * Declared before `/:id` so the literal path wins. Returns overall + per-connector statuses
+ * only; pair it with a one-time `/api/stations` fetch for the full catalog.
+ */
+router.get("/statuses", (req, res, next) => {
+  try {
+    const { lastMergeAt, ageSec, stale } = freshness();
+    const items = listStationStatuses();
+    const tag = `st-${lastMergeAt ?? "0"}-${items.length}`;
+    if (applyCache(req, res, STATUSES_CACHE, { lastModified: lastMergeAt, tag })) return;
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      lastMergeAt,
+      ageSec,
+      stale,
+      count: items.length,
+      stations: items,
+    });
   } catch (error) {
     next(error);
   }

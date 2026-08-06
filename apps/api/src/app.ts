@@ -49,13 +49,24 @@ app.get("/api/health", (_req, res) => {
 });
 
 // Data-freshness detail — HTTP liveness alone says nothing about whether capture is working.
+// `secondsSinceLastScrape` + `stale` let an external monitor (or the on-device watchdog) catch
+// a scheduler that has silently stopped ticking even though the process is still answering.
 app.get("/api/health/detail", (_req, res) => {
+  const staleAfterSec = Number(process.env.STATIONS_STALE_AFTER_SEC ?? 900);
+  const lastScrapeAt = getMeta("lastScrapeAt");
+  const secondsSinceLastScrape = lastScrapeAt
+    ? Math.floor((Date.now() - Date.parse(lastScrapeAt)) / 1000)
+    : null;
   res.json({
     status: "ok",
     uptimeSec: Math.floor(process.uptime()),
     rss: process.memoryUsage().rss,
     stations: countStations(),
     rawStations: countRawStations(),
+    lastScrapeAt,
+    lastScrapeStartAt: getMeta("lastScrapeStartAt"),
+    secondsSinceLastScrape,
+    stale: secondsSinceLastScrape != null && secondsSinceLastScrape > staleAfterSec,
     lastMergeAt: getMeta("lastMergeAt"),
     lastIngestAt: Object.fromEntries(
       Object.keys(appScraperConfigs).map((source) => [source, getMeta(`lastIngestAt:${source}`)])

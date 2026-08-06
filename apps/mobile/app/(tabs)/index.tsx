@@ -7,7 +7,7 @@ import { StationBottomSheet } from '@/components/stations/station-bottom-sheet';
 import { markerImage } from '@/lib/markerImages';
 import { StationsFilterSheet } from '@/components/stations/stations-filter-sheet';
 import { useIsOffline } from '@/hooks/use-is-offline';
-import { listStations } from '@/lib/stations/stationsClient';
+import { fetchStationStatuses, listStations } from '@/lib/stations/stationsClient';
 import type { Station } from '@/types/stations';
 import { DEFAULT_STATIONS_FILTERS, type StationsFilters } from '@/types/stationsFilters';
 import * as Location from 'expo-location';
@@ -67,6 +67,49 @@ export default function StationsMapScreen() {
       cancelled = true;
     };
   }, []);
+
+  // Live status refresh: poll the compact statuses feed and patch each station's overall +
+  // per-connector status in place. The backend re-scrapes every ~5 min; a 60s poll keeps the
+  // marker dots current. State only changes when a status actually changed, so idle polls don't
+  // re-render the map. Best-effort — a failed poll leaves the last-known statuses on screen.
+  const STATUS_POLL_MS = 60_000;
+  useEffect(() => {
+    if (!stations.length) return;
+    let cancelled = false;
+
+    async function pollStatuses() {
+      const updates = await fetchStationStatuses();
+      if (cancelled || !updates?.length) return;
+      const byId = new Map(updates.map((u) => [u.id, u]));
+
+      setStations((prev) => {
+        let changed = false;
+        const next = prev.map((s) => {
+          const u = byId.get(s.id);
+          if (!u) return s;
+          let connectorsChanged = false;
+          const connectors = s.connectors.map((c, i) => {
+            const nextStatus = u.connectors[i];
+            if (nextStatus && nextStatus !== c.status) {
+              connectorsChanged = true;
+              return { ...c, status: nextStatus };
+            }
+            return c;
+          });
+          if (!connectorsChanged && u.status === s.status) return s;
+          changed = true;
+          return { ...s, status: u.status, connectors };
+        });
+        return changed ? next : prev;
+      });
+    }
+
+    const timer = setInterval(pollStatuses, STATUS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [stations.length]);
 
   const filterOptions = useMemo(() => {
     const connectorTypes = new Set<string>();

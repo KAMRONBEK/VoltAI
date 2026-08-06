@@ -51,8 +51,20 @@ cp ~/VoltAI/apps/api/scripts/cloudflared/config.example.yml ~/.cloudflared/confi
 #   edit ~/.cloudflared/config.yml → fill <TUNNEL-UUID>
 cloudflared tunnel route dns voltai-api api.voltai.uz   # replaces the Vercel CNAME
 ```
-Then add a Cloudflare **Cache Rule** on `api.voltai.uz/api/stations*` (edge TTL 300s,
-stale-if-error 7d) — mandatory, the single phone CPU is otherwise the whole capacity plane.
+**Caching (edge + freshness).** The origin now sends its own `Cache-Control` + `ETag` /
+`Last-Modified` on the read endpoints, so Cloudflare will "Cache Everything" for them without a
+manual rule — but keep a Cache Rule as a backstop and to enable `stale-if-error`:
+- `api.voltai.uz/api/stations` (+ `/nearby`, `/search`) — the full catalog changes slowly; edge
+  TTL ~180s, `stale-if-error` 7d. Respects the origin's `s-maxage` (default 180s).
+- `api.voltai.uz/api/stations/statuses` — the **live status feed** other apps poll; short edge
+  TTL ~30s so a 5-min scrape is visible within ~30s, `stale-if-error` 1h. Respect origin headers.
+- Do **not** cache `/api/health*` or `/ingest`.
+
+Consumers should fetch `/api/stations` once for the catalog, then poll `/api/stations/statuses`
+(send back the `ETag` as `If-None-Match` → cheap 304s; the payload is ~24 KB gzipped and only
+changes every scrape). This split is what keeps the single phone CPU from being the capacity
+plane while still serving near-real-time statuses. Tune TTLs via `STATIONS_CACHE_*` /
+`STATUSES_CACHE_*` env (see `.env.example`).
 
 ## 5. Run under supervision + autostart
 ```bash
@@ -65,7 +77,11 @@ Control: `sv up|down|restart voltai-api cloudflared`. Logs: `~/voltai/logs/{api,
 ## 6. Monitoring & backup
 - **External** uptime check on `https://api.voltai.uz/api/health` (UptimeRobot/BetterStack) →
   Telegram. This is the only thing that catches Android killing the whole process.
-- Data freshness: `GET /api/health/detail` exposes `lastIngestAt` per source + `lastMergeAt`.
+- Data freshness: `GET /api/health/detail` exposes `lastScrapeAt`, `secondsSinceLastScrape`,
+  a `stale` boolean (true when > `STATIONS_STALE_AFTER_SEC`, default 900s), `lastIngestAt` per
+  source, and `lastMergeAt`. **Alert on `stale:true`** — it catches a scheduler that has silently
+  stopped ticking (e.g. Android froze the process) even while HTTP still answers `/api/health`.
+  The scrape runs every 5 min by default (`SCRAPE_CRON`), so a healthy phone stays well under 900s.
 - Watchdog: `while true; do bash ~/VoltAI/apps/api/scripts/termux/watchdog.sh; sleep 120; done`.
 - Backup: nightly `sqlite3 VACUUM INTO` → gzip → `rclone` to Cloudflare R2 (14-day retention).
 

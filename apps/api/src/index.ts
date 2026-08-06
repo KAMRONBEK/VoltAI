@@ -40,6 +40,7 @@ async function refresh(trigger: string): Promise<void> {
     return;
   }
   refreshing = true;
+  setMeta("lastScrapeStartAt", new Date().toISOString());
   try {
     const results = await scrapeAllHttpSources();
     let total = 0;
@@ -60,7 +61,11 @@ async function refresh(trigger: string): Promise<void> {
     }
 
     const { mergedCount } = await mergeStations();
-    setMeta("lastMergeAt", new Date().toISOString());
+    const finishedAt = new Date().toISOString();
+    setMeta("lastMergeAt", finishedAt);
+    // Records that a full scrape cycle completed — powers the freshness/stale check in
+    // /api/health/detail so a stalled scheduler on the phone is detectable.
+    setMeta("lastScrapeAt", finishedAt);
     // eslint-disable-next-line no-console
     console.log(`[scrape:${trigger}] ${total} raw → ${mergedCount} canonical stations`);
   } catch (error) {
@@ -78,7 +83,11 @@ function scheduleScrape(): void {
     console.log("[scrape] disabled (SCRAPE_ENABLED=false)");
     return;
   }
-  const expression = process.env.SCRAPE_CRON ?? "*/10 * * * *";
+  // Every 5 minutes by default — one poll of each operator API refreshes live charger
+  // statuses, then the canonical table is rebuilt. Override with SCRAPE_CRON.
+  const expression = process.env.SCRAPE_CRON ?? "*/5 * * * *";
+  // eslint-disable-next-line no-console
+  console.log(`[scrape] scheduled (${expression})`);
   cron.schedule(expression, () => {
     void refresh("cron");
   });
@@ -86,6 +95,14 @@ function scheduleScrape(): void {
 
 /** Rebuild the canonical `stations` table from raw captures on a schedule. */
 function scheduleMerge(): void {
+  // When scraping is on, every scrape cycle already merges at the end, so a standalone merge
+  // cron would just repeat identical DELETE/INSERT churn. Only schedule it as a fallback when
+  // scraping is disabled (e.g. a read-replica fed purely by /ingest).
+  if (scrapeEnabled()) {
+    // eslint-disable-next-line no-console
+    console.log("[merge] inline with each scrape cycle; standalone merge cron disabled");
+    return;
+  }
   const expression = process.env.MERGE_CRON ?? "*/15 * * * *";
   let merging = false;
 
