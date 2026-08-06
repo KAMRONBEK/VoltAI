@@ -6,12 +6,15 @@ import { getApps } from 'react-native-map-link';
 import { ThemedText } from '@/components/themed-text';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import type { Station } from '@/types/stations';
+import { operatorFor } from '@/lib/operators';
+import type { Station, StationConnector } from '@/types/stations';
 
 type Props = {
   stations: Station[] | null;
   onClose: () => void;
 };
+
+const BRAND = '#22E06B';
 
 function formatStatus(status: Station['status']): string {
   switch (status) {
@@ -39,20 +42,37 @@ function statusDotColor(status: Station['status']): string {
   }
 }
 
-type NavApp = {
-  id: string;
-  name: string;
-  icon: unknown;
-  open: () => Promise<string | void>;
-};
+/** Group identical connectors (type + power) into "N ×" rows. */
+type ConnectorRow = { key: string; type: string; powerKw: number; count: number; status: Station['status'] };
+function aggregateConnectors(connectors: StationConnector[]): ConnectorRow[] {
+  const map = new Map<string, ConnectorRow>();
+  const rank = (s: Station['status']) => (s === 'available' ? 0 : s === 'in_use' ? 1 : s === 'unknown' ? 2 : 3);
+  for (const c of connectors) {
+    const key = `${c.type}|${c.powerKw}`;
+    const existing = map.get(key);
+    if (existing) {
+      existing.count += 1;
+      if (rank(c.status) < rank(existing.status)) existing.status = c.status;
+    } else {
+      map.set(key, { key, type: c.type, powerKw: c.powerKw, count: 1, status: c.status });
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => b.powerKw - a.powerKw);
+}
 
+function formatMoney(n: number): string {
+  return Math.round(n)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+}
+
+type NavApp = { id: string; name: string; icon: unknown; open: () => Promise<string | void> };
 const APPS_WHITELIST = ['google-maps', 'apple-maps', 'yandex', 'yandex-maps', 'dgis', 'maps-me', 'waze'];
 
 export function StationBottomSheet({ stations, onClose }: Props) {
   const colorScheme = useColorScheme() ?? 'dark';
   const sheetRef = useRef<BottomSheet | null>(null);
-
-  const snapPoints = useMemo(() => [180, 340, '85%'], []);
+  const snapPoints = useMemo(() => [200, 380, '88%'], []);
 
   const stationsIdsKey = useMemo(() => (stations ? stations.map((s) => s.id).join('|') : ''), [stations]);
   const stationsList = useMemo(() => stations ?? [], [stations]);
@@ -70,18 +90,10 @@ export function StationBottomSheet({ stations, onClose }: Props) {
 
   useEffect(() => {
     if (!sheetRef.current) return;
-
-    if (stationsList.length) {
-      sheetRef.current.snapToIndex(1);
-    } else {
-      sheetRef.current.close();
-    }
+    if (stationsList.length) sheetRef.current.snapToIndex(1);
+    else sheetRef.current.close();
   }, [stationsList.length]);
 
-  // Reset the navigation section whenever the selected station(s) change. This uses
-  // React's "adjust state during render" pattern instead of an effect, which avoids the
-  // cascading render flagged by react-hooks/set-state-in-effect and is compatible with
-  // the React Compiler.
   if (prevStationsKey !== stationsIdsKey) {
     setPrevStationsKey(stationsIdsKey);
     setShowNavApps(false);
@@ -98,12 +110,23 @@ export function StationBottomSheet({ stations, onClose }: Props) {
   }, [activeStationId, stationsList]);
 
   const backgroundColor = Colors[colorScheme].background;
-  const textColor = Colors[colorScheme].text;
+
+  const op = activeStation ? operatorFor(activeStation.operatorId) : null;
+  const connectorRows = useMemo(
+    () => (activeStation ? aggregateConnectors(activeStation.connectors) : []),
+    [activeStation]
+  );
+  const maxPower = useMemo(
+    () => connectorRows.reduce((m, c) => Math.max(m, c.powerKw || 0), 0),
+    [connectorRows]
+  );
+  const totalConnectors = useMemo(
+    () => connectorRows.reduce((n, c) => n + c.count, 0),
+    [connectorRows]
+  );
 
   async function ensureNavAppsLoaded(s: Station) {
-    if (navLoading) return;
-    if (navApps.length) return;
-
+    if (navLoading || navApps.length) return;
     setNavError(null);
     setNavLoading(true);
     try {
@@ -133,43 +156,50 @@ export function StationBottomSheet({ stations, onClose }: Props) {
       backgroundStyle={[styles.sheetBackground, { backgroundColor }]}
       handleIndicatorStyle={{ backgroundColor: 'rgba(255,255,255,0.25)' }}>
       <BottomSheetView style={styles.content}>
-        {activeStation ? (
+        {activeStation && op ? (
           <>
+            {/* Header: operator logo + name + status */}
             <View style={styles.headerRow}>
+              <View style={[styles.logoBox, { borderColor: `${op.color}66` }]}>
+                {op.logo ? (
+                  <Image source={op.logo} style={styles.logoImg} resizeMode="contain" />
+                ) : (
+                  <View style={[styles.logoFallback, { backgroundColor: op.color }]}>
+                    <ThemedText style={styles.logoFallbackText}>{op.name.slice(0, 1)}</ThemedText>
+                  </View>
+                )}
+              </View>
+
               <View style={styles.titleWrap}>
-                <ThemedText type="subtitle" numberOfLines={1}>
+                <ThemedText type="subtitle" numberOfLines={2}>
                   {activeStation.name}
                 </ThemedText>
                 <View style={styles.metaRow}>
-                  <View
-                    style={[styles.statusDot, { backgroundColor: statusDotColor(activeStation.status) }]}
-                  />
-                  <ThemedText style={{ color: textColor }}>{formatStatus(activeStation.status)}</ThemedText>
+                  <ThemedText style={[styles.operatorText, { color: op.color }]} numberOfLines={1}>
+                    {op.name}
+                  </ThemedText>
+                  <View style={styles.statusChip}>
+                    <View style={[styles.statusDot, { backgroundColor: statusDotColor(activeStation.status) }]} />
+                    <ThemedText style={styles.statusChipText}>{formatStatus(activeStation.status)}</ThemedText>
+                  </View>
                 </View>
               </View>
-
-              <Pressable style={styles.closeButton} onPress={onClose} accessibilityRole="button">
-                <ThemedText type="defaultSemiBold">Close</ThemedText>
-              </Pressable>
             </View>
 
-            {stations && stations.length > 1 ? (
+            {/* Co-located station switcher */}
+            {stationsList.length > 1 ? (
               <View style={styles.switchRow}>
-                {stations.slice(0, 2).map((s) => {
+                {stationsList.slice(0, 3).map((s) => {
                   const isOn = s.id === activeStation.id;
                   return (
                     <Pressable
                       key={s.id}
                       onPress={() => setActiveStationId(s.id)}
-                      style={[
-                        styles.switchChip,
-                        isOn ? { borderColor: `${Colors[colorScheme].tint}99` } : null,
-                        isOn ? { backgroundColor: `${Colors[colorScheme].tint}1A` } : null,
-                      ]}
+                      style={[styles.switchChip, isOn ? { borderColor: `${BRAND}99`, backgroundColor: `${BRAND}1A` } : null]}
                       accessibilityRole="button">
                       <View style={[styles.smallDot, { backgroundColor: statusDotColor(s.status) }]} />
-                      <ThemedText type="defaultSemiBold" numberOfLines={1}>
-                        {s.name}
+                      <ThemedText type="defaultSemiBold" numberOfLines={1} style={styles.switchChipText}>
+                        {operatorFor(s.operatorId).name}
                       </ThemedText>
                     </Pressable>
                   );
@@ -177,38 +207,62 @@ export function StationBottomSheet({ stations, onClose }: Props) {
               </View>
             ) : null}
 
-            {activeStation.address || activeStation.city ? (
-              <ThemedText style={styles.addressText} numberOfLines={2}>
-                {[activeStation.address, activeStation.city].filter(Boolean).join(' · ')}
-              </ThemedText>
-            ) : null}
-
-            {activeStation.operator ? (
-              <ThemedText style={styles.operatorText} numberOfLines={1}>
-                Operator: {activeStation.operator}
-              </ThemedText>
-            ) : null}
-
-            <View style={styles.section}>
-              <ThemedText type="defaultSemiBold">Connectors</ThemedText>
-              <View style={styles.pillsRow}>
-                {activeStation.connectors.length ? (
-                  activeStation.connectors.map((c) => (
-                    <View key={c.id} style={styles.pill}>
-                      <ThemedText type="defaultSemiBold">
-                        {c.type} {c.powerKw ? `${Math.round(c.powerKw)}kW` : ''}
-                      </ThemedText>
-                    </View>
-                  ))
-                ) : (
-                  <ThemedText>Unknown</ThemedText>
-                )}
+            {/* Stat cards: price / power / connectors */}
+            <View style={styles.statsRow}>
+              <View style={styles.statCard}>
+                <ThemedText style={styles.statValue}>
+                  {activeStation.pricing?.perKwh != null ? formatMoney(activeStation.pricing.perKwh) : '—'}
+                </ThemedText>
+                <ThemedText style={styles.statLabel}>
+                  {activeStation.pricing?.perKwh != null ? `${activeStation.pricing.currency ?? 'UZS'} / kWh` : 'Price'}
+                </ThemedText>
+              </View>
+              <View style={styles.statCard}>
+                <ThemedText style={styles.statValue}>{maxPower ? `${Math.round(maxPower)}` : '—'}</ThemedText>
+                <ThemedText style={styles.statLabel}>{maxPower ? 'kW max' : 'Power'}</ThemedText>
+              </View>
+              <View style={styles.statCard}>
+                <ThemedText style={styles.statValue}>{totalConnectors || '—'}</ThemedText>
+                <ThemedText style={styles.statLabel}>Connectors</ThemedText>
               </View>
             </View>
 
+            {activeStation.address ? (
+              <View style={styles.addressRow}>
+                <ThemedText style={styles.addressText} numberOfLines={2}>
+                  {activeStation.address}
+                </ThemedText>
+              </View>
+            ) : null}
+
+            {/* Connectors */}
+            {connectorRows.length ? (
+              <View style={styles.section}>
+                <ThemedText type="defaultSemiBold">Connectors</ThemedText>
+                <View style={styles.connectorList}>
+                  {connectorRows.map((c) => (
+                    <View key={c.key} style={styles.connectorRow}>
+                      <View style={[styles.connectorDot, { backgroundColor: statusDotColor(c.status) }]} />
+                      <ThemedText type="defaultSemiBold" style={styles.connectorType}>
+                        {c.count > 1 ? `${c.count}× ` : ''}
+                        {c.type === 'unknown' ? 'Connector' : c.type}
+                      </ThemedText>
+                      <ThemedText style={styles.connectorPower}>{c.powerKw ? `${Math.round(c.powerKw)} kW` : ''}</ThemedText>
+                    </View>
+                  ))}
+                </View>
+                {activeStation.pricing?.parkingFee ? (
+                  <ThemedText style={styles.feeText}>
+                    Parking/idle fee: {formatMoney(activeStation.pricing.parkingFee)} {activeStation.pricing.currency ?? 'UZS'}
+                  </ThemedText>
+                ) : null}
+              </View>
+            ) : null}
+
+            {/* Navigate */}
             <View style={styles.actionsRow}>
               <Pressable
-                style={[styles.actionPrimary, { backgroundColor: Colors[colorScheme].tint }]}
+                style={[styles.actionPrimary, { backgroundColor: BRAND }]}
                 onPress={async () => {
                   const next = !showNavApps;
                   setShowNavApps(next);
@@ -226,7 +280,6 @@ export function StationBottomSheet({ stations, onClose }: Props) {
 
             {showNavApps ? (
               <View style={styles.navSection}>
-                <ThemedText type="defaultSemiBold">Navigation apps</ThemedText>
                 {navLoading ? (
                   <View style={styles.navState}>
                     <ActivityIndicator />
@@ -260,7 +313,7 @@ export function StationBottomSheet({ stations, onClose }: Props) {
                           <Image source={app.icon as never} style={styles.navIcon} />
                           <ThemedText type="defaultSemiBold">{app.name}</ThemedText>
                         </View>
-                        <ThemedText>Open</ThemedText>
+                        <ThemedText style={{ color: BRAND }}>Open</ThemedText>
                       </Pressable>
                     ))}
                   </View>
@@ -270,7 +323,7 @@ export function StationBottomSheet({ stations, onClose }: Props) {
           </>
         ) : (
           <View style={styles.emptyState}>
-            <ThemedText type="defaultSemiBold">Tap a marker</ThemedText>
+            <ThemedText type="defaultSemiBold">Tap a charger</ThemedText>
             <ThemedText>Station details appear here.</ThemedText>
           </View>
         )}
@@ -280,58 +333,33 @@ export function StationBottomSheet({ stations, onClose }: Props) {
 }
 
 const styles = StyleSheet.create({
-  sheetBackground: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 20,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
-  titleWrap: {
-    flex: 1,
-    gap: 6,
-  },
-  metaRow: {
-    flexDirection: 'row',
+  sheetBackground: { borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  content: { flex: 1, paddingHorizontal: 16, paddingTop: 6, paddingBottom: 20 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  logoBox: {
+    width: 52,
+    height: 52,
+    borderRadius: 15,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 2,
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
-  switchRow: {
-    marginTop: 10,
-    flexDirection: 'row',
-    gap: 10,
-  },
+  logoImg: { width: 46, height: 46, borderRadius: 12 },
+  logoFallback: { width: 46, height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  logoFallbackText: { color: '#fff', fontWeight: '800', fontSize: 20 },
+  titleWrap: { flex: 1, gap: 4 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
+  operatorText: { fontWeight: '700', fontSize: 13 },
+  statusChip: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  statusChipText: { fontSize: 13, opacity: 0.9 },
+  statusDot: { width: 9, height: 9, borderRadius: 999 },
+  switchRow: { marginTop: 12, flexDirection: 'row', gap: 8 },
   switchChip: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
-  smallDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 999,
-  },
-  statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 999,
-  },
-  closeButton: {
+    gap: 7,
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 12,
@@ -339,55 +367,45 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.12)',
   },
-  addressText: {
-    marginTop: 10,
-    opacity: 0.9,
-  },
-  operatorText: {
-    marginTop: 6,
-    opacity: 0.8,
-  },
-  section: {
-    marginTop: 16,
-    gap: 10,
-  },
-  pillsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  pill: {
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
-  actionsRow: {
-    marginTop: 18,
-  },
-  actionPrimary: {
+  switchChipText: { fontSize: 13 },
+  smallDot: { width: 8, height: 8, borderRadius: 999 },
+  statsRow: { marginTop: 16, flexDirection: 'row', gap: 10 },
+  statCard: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 16,
     alignItems: 'center',
-    justifyContent: 'center',
-    height: 48,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  statValue: { fontSize: 20, fontWeight: '800' },
+  statLabel: { fontSize: 11, opacity: 0.6, marginTop: 2 },
+  addressRow: { marginTop: 14 },
+  addressText: { opacity: 0.85, lineHeight: 20 },
+  section: { marginTop: 18, gap: 10 },
+  connectorList: { gap: 8 },
+  connectorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
     borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.10)',
   },
-  actionPrimaryText: {
-    color: '#0b0b0b',
-    fontWeight: '700',
-  },
-  navSection: {
-    marginTop: 16,
-    gap: 10,
-  },
-  navState: {
-    gap: 8,
-    paddingVertical: 6,
-  },
-  navList: {
-    gap: 10,
-  },
+  connectorDot: { width: 9, height: 9, borderRadius: 999 },
+  connectorType: { flex: 1 },
+  connectorPower: { opacity: 0.7 },
+  feeText: { marginTop: 4, opacity: 0.6, fontSize: 13 },
+  actionsRow: { marginTop: 18 },
+  actionPrimary: { alignItems: 'center', justifyContent: 'center', height: 50, borderRadius: 15 },
+  actionPrimaryText: { color: '#07120B', fontWeight: '800', fontSize: 15 },
+  navSection: { marginTop: 16, gap: 10 },
+  navState: { gap: 8, paddingVertical: 6 },
+  navList: { gap: 10 },
   navRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -399,22 +417,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.12)',
   },
-  navRowLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  navIcon: {
-    width: 26,
-    height: 26,
-    borderRadius: 7,
-  },
-  emptyState: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingBottom: 12,
-  },
+  navRowLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  navIcon: { width: 26, height: 26, borderRadius: 7 },
+  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, paddingBottom: 12 },
 });
-

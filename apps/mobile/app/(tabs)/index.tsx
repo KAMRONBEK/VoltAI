@@ -14,7 +14,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
-import { Marker, YandexMapView, type YandexMapViewRef } from 'expo-yandex-mapkit';
+import { Clusterer, Marker, YandexMapView, type YandexMapViewRef } from 'expo-yandex-mapkit';
 
 const UZBEKISTAN_CAMERA = {
   latitude: 41.2995,
@@ -31,7 +31,7 @@ export default function StationsMapScreen() {
   const insets = useSafeAreaInsets();
   const isOffline = useIsOffline();
 
-  const MARKER_SNAPSHOT_KEY_VERSION = 1;
+  const MARKER_SNAPSHOT_KEY_VERSION = 2;
 
   const [stations, setStations] = useState<Station[]>([]);
   const [filters, setFilters] = useState<StationsFilters>(DEFAULT_STATIONS_FILTERS);
@@ -146,14 +146,14 @@ export default function StationsMapScreen() {
       }
     }
 
-    // Only 1 or 2 per marker as requested; if API ever returns more, keep 2 most relevant.
+    // Sort each co-located group so the best-available station leads (drives the pin's
+    // operator logo + status). The native Clusterer handles map-wide density.
     for (const g of map.values()) {
       g.stations.sort((a, b) => {
         const rank = (st: Station) =>
           st.status === 'available' ? 0 : st.status === 'in_use' ? 1 : st.status === 'unknown' ? 2 : 3;
         return rank(a) - rank(b);
       });
-      if (g.stations.length > 2) g.stations = g.stations.slice(0, 2);
     }
 
     return Array.from(map.values());
@@ -184,6 +184,7 @@ export default function StationsMapScreen() {
         // until the view has laid out (and again whenever selection changes the key).
         const tracksViewChanges = currentKey !== expectedKey;
 
+        const primary = group.stations[0];
         return (
           <Marker
             key={group.id}
@@ -193,7 +194,9 @@ export default function StationsMapScreen() {
             anchor={{ x: 0.5, y: 0.5 }}
             tracksViewChanges={tracksViewChanges}>
             <StationMarker
-              statuses={group.stations.map((s) => s.status).slice(0, 2)}
+              operatorId={primary?.operatorId}
+              status={primary?.status ?? 'unknown'}
+              count={group.stations.length}
               selected={isSelected}
               onFirstLayout={() => {
                 setMarkerReady((prev) => {
@@ -220,7 +223,15 @@ export default function StationsMapScreen() {
         // Keep the camera centre above the bottom sheet so a selected pin isn't hidden.
         mapPadding={{ bottom: insets.bottom + 120 }}
         onMapPress={() => setSelectedGroupId(null)}>
-        {markers}
+        <Clusterer
+          clusterColor="#22E06B"
+          clusterTextColor="#07120B"
+          clusterSize={46}
+          clusterTextSize={13}
+          clusterRadius={60}
+          minZoom={16}>
+          {markers}
+        </Clusterer>
       </YandexMapView>
 
       <View pointerEvents="none" style={[styles.topOverlay, { top: insets.top + 10 }]}>

@@ -31,6 +31,7 @@ export interface Station {
   address?: string;
   city?: string;
   operator?: string;
+  operatorId?: string;
   connectors: StationConnector[];
   status: StationStatus; // station-level summary
   pricing?: StationPricing;

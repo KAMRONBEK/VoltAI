@@ -121,6 +121,12 @@ function normalizeStation(raw: unknown, idx: number): Station | null {
       : isRecord(raw.operator) && typeof raw.operator.name === 'string'
         ? raw.operator.name
         : undefined;
+  const operatorId =
+    typeof raw.operatorId === 'string'
+      ? raw.operatorId
+      : typeof raw.primarySource === 'string'
+        ? raw.primarySource
+        : undefined;
 
   return {
     id: String(id),
@@ -129,6 +135,7 @@ function normalizeStation(raw: unknown, idx: number): Station | null {
     address: typeof raw.address === 'string' ? raw.address : undefined,
     city: typeof raw.city === 'string' ? raw.city : undefined,
     operator,
+    operatorId,
     status: stationStatus,
     connectors,
     amenities: Array.isArray(raw.amenities) ? raw.amenities.filter((a): a is string => typeof a === 'string') : undefined,
