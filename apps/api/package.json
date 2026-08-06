@@ -10,6 +10,7 @@
     "lint": "tsc -p tsconfig.json --noEmit",
     "scrape:app": "tsx scrapers/run-app-scraper.ts",
     "scrape:http": "tsx scrapers/http/run.ts",
+    "enrich:tokbor": "tsx scrapers/http/enrich-tokbor.ts",
     "auth:tokbor": "tsx scrapers/auth/cli.ts",
     "scrape:yandex": "tsx scrapers/maps/yandex.ts",
     "scrape:google": "tsx scrapers/maps/google.ts",

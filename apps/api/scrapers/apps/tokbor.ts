@@ -1,5 +1,6 @@
 import type { AppScraperConfig } from "./base";
 import type { Connector, RawStationInput } from "../../src/types/station";
+import { getTokborDetail } from "./tokborDetailCache";
 
 /**
  * Tokbor (uz.tokbor.tokbor) — Flutter app, base api.newtokbor.uz.
@@ -57,14 +58,25 @@ function parseTokbor(payload: unknown): RawStationInput[] {
 
     const connectorType = typeof row.type === "string" && row.type.trim() ? row.type.trim() : "unknown";
     const status = (typeof row.status === "string" && STATUS_MAP[row.status]) || "unknown";
-    const connectors: Connector[] = [{ type: connectorType, status }];
+
+    // Enrich from the cached per-station detail (name/address/price/power) when available;
+    // fall back to a synthesized name otherwise. See scrapers/http/enrich-tokbor.ts.
+    const detail = getTokborDetail(row.id);
+    const count = detail?.connectorCount && detail.connectorCount > 0 ? detail.connectorCount : 1;
+    const connectors: Connector[] = Array.from({ length: count }, () => ({
+      type: connectorType,
+      power: detail?.capacity,
+      status,
+      pricePerKwh: detail?.electricityFee,
+      parkingFee: detail?.idleFee,
+      currency: detail?.electricityFee != null ? "UZS" : undefined
+    }));
 
     stations.push({
       source: "tokbor",
       externalId: String(row.id),
-      // List has no name; real name is at /charging-station/{id}. Synthesized name
-      // is unique per station so the merge never collapses distinct Tokbor pins.
-      name: `Tokbor #${row.id}`,
+      name: detail?.name?.trim() || `Tokbor #${row.id}`,
+      address: detail?.address?.trim() || undefined,
       location: { type: "Point", coordinates: [lng, lat] },
       connectors,
       rawData: row as Record<string, unknown>,
