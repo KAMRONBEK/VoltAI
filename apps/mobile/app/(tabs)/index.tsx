@@ -2,6 +2,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { OfflineBanner } from '@/components/offline-banner';
 import { FilterFab } from '@/components/stations/filter-fab';
+import { MapLegend } from '@/components/stations/map-legend';
 import { StationBottomSheet } from '@/components/stations/station-bottom-sheet';
 import { markerImage } from '@/lib/markerImages';
 import { StationsFilterSheet } from '@/components/stations/stations-filter-sheet';
@@ -179,7 +180,11 @@ export default function StationsMapScreen() {
             anchor={{ x: 0.5, y: 0.33 }}
             scale={isSelected ? 0.92 : 0.72}
             zIndex={isSelected ? 10 : 1}
-            source={markerImage(primary?.operatorId, statuses.length ? statuses : [primary?.status ?? 'unknown'])}
+            source={markerImage(
+              primary?.operatorId,
+              primary?.category,
+              statuses.length ? statuses : [primary?.status ?? 'unknown']
+            )}
           />
         );
       }),
@@ -235,6 +240,12 @@ export default function StationsMapScreen() {
 
         <FilterFab badgeCount={activeFilterCount} onPress={() => setIsFilterOpen(true)} />
       </View>
+
+      {!selectedStations ? (
+        <View style={[styles.legendWrap, { bottom: insets.bottom + 70 }]} pointerEvents="box-none">
+          <MapLegend />
+        </View>
+      ) : null}
 
       <StationBottomSheet
         stations={selectedStations}
@@ -307,6 +318,12 @@ const styles = StyleSheet.create({
     bottom: 110,
     gap: 10,
     alignItems: 'flex-end',
+  },
+  legendWrap: {
+    position: 'absolute',
+    left: 12,
+    bottom: 110,
+    maxWidth: 260,
   },
   fabButton: {
     width: 46,

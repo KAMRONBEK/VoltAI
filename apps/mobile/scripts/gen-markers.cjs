@@ -1,6 +1,9 @@
-// Generates pre-composited map marker PNGs (operator logo + status-ring + per-connector
-// status dots) for every status pattern, plus a markerImages.ts lookup. Run from apps/mobile
-// with NODE_PATH pointed at the repo root node_modules (for sharp).
+// Generates pre-composited map marker PNGs + a markerImages.ts lookup.
+// Marker = operator logo + a category-colored ring (ultra/dc/hybrid/ac) + a pill of
+// per-charger status dots. Static images via Marker `source` render reliably (a
+// React-child <Image> is missed by the Yandex bitmap snapshot). Run from apps/mobile with
+// NODE_PATH pointed at the repo-root node_modules (for sharp):
+//   NODE_PATH=/d/Projects/VoltAI/node_modules node scripts/gen-markers.cjs
 const sharp = require('sharp');
 const fs = require('fs');
 const path = require('path');
@@ -8,17 +11,19 @@ const path = require('path');
 const OUT_DIR = path.join(process.cwd(), 'assets', 'operators', 'markers');
 const TS_FILE = path.join(process.cwd(), 'lib', 'markerImages.ts');
 
-const LETTERS = ['A', 'I', 'O', 'U']; // available, in_use, offline, unknown (rank order)
-const COLOR = { A: '#2FE28A', I: '#F7B84B', O: '#8A9099', U: '#4DB5FF' };
 const OPS = ['tokbor', 'spectre-energy', 'k-watt', 'generic'];
+const CATS = { ultra: '#A855F7', dc: '#3FA9F5', hybrid: '#14D6C4', ac: '#9AA3AD' };
+// status dots: available / in-use / offline (unknown folds into offline grey)
+const DOT = { A: '#2FE28A', I: '#F7B84B', O: '#8A9099' };
+const LETTERS = ['A', 'I', 'O'];
 const MAX_DOTS = 4;
 
 const W = 148;
 const H = 176;
 const PIN = { x: 22, y: 6, w: 104, h: 104, rx: 30 };
 const LOGO = 82;
-const LOGO_CX = PIN.x + PIN.w / 2; // 74
-const LOGO_CY = PIN.y + PIN.h / 2; // 58
+const LOGO_CX = PIN.x + PIN.w / 2;
+const LOGO_CY = PIN.y + PIN.h / 2;
 
 function multisets(size) {
   const res = [];
@@ -31,20 +36,9 @@ function multisets(size) {
 const PATTERNS = [];
 for (let s = 1; s <= MAX_DOTS; s++) PATTERNS.push(...multisets(s));
 
-function overallColor(pattern) {
-  // best status present drives the ring (A > I > O > U handled by LETTERS order, but
-  // "available" first then in_use then unknown then offline for UX)
-  if (pattern.includes('A')) return COLOR.A;
-  if (pattern.includes('I')) return COLOR.I;
-  if (pattern.includes('U')) return COLOR.U;
-  return COLOR.O;
-}
-
-function frameSvg(pattern) {
-  const ring = overallColor(pattern);
+function frameSvg(catColor, pattern) {
   const n = pattern.length;
-  const dotR = 6, gap = 6;
-  const pillH = 26;
+  const dotR = 6, gap = 6, pillH = 26;
   const contentW = n * (dotR * 2) + (n - 1) * gap;
   const pillW = contentW + 20;
   const pillX = (W - pillW) / 2;
@@ -53,28 +47,21 @@ function frameSvg(pattern) {
   let dx = pillX + 10 + dotR;
   const dy = pillY + pillH / 2;
   for (const ch of pattern) {
-    dots += `<circle cx="${dx}" cy="${dy}" r="${dotR}" fill="${COLOR[ch]}" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>`;
+    dots += `<circle cx="${dx}" cy="${dy}" r="${dotR}" fill="${DOT[ch]}" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>`;
     dx += dotR * 2 + gap;
   }
-  return Buffer.from(
-    `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
-      <rect x="${PIN.x}" y="${PIN.y}" width="${PIN.w}" height="${PIN.h}" rx="${PIN.rx}" fill="#FFFFFF" stroke="${ring}" stroke-width="8"/>
+  return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="${PIN.x}" y="${PIN.y}" width="${PIN.w}" height="${PIN.h}" rx="${PIN.rx}" fill="#FFFFFF" stroke="${catColor}" stroke-width="9"/>
       <rect x="${pillX}" y="${pillY}" width="${pillW}" height="${pillH}" rx="${pillH / 2}" fill="#0F1114"/>
       ${dots}
-    </svg>`
-  );
-}
-
-function genericBoltSvg(pattern) {
-  const ring = overallColor(pattern);
-  // reuse frame but add a bolt where the logo would be
-  const base = frameSvg(pattern).toString();
-  const bolt = `<path d="M80 26 L54 66 L72 66 L64 96 L94 52 L76 52 Z" fill="#1AA63F"/>`;
-  return Buffer.from(base.replace('</svg>', bolt + '</svg>'));
+    </svg>`;
 }
 
 (async () => {
   fs.mkdirSync(OUT_DIR, { recursive: true });
+  // clear old
+  for (const f of fs.readdirSync(OUT_DIR)) if (f.endsWith('.png')) fs.unlinkSync(path.join(OUT_DIR, f));
+
   const logos = {};
   for (const op of ['tokbor', 'spectre-energy', 'k-watt']) {
     logos[op] = await sharp(path.join('assets', 'operators', op + '.png'))
@@ -84,26 +71,31 @@ function genericBoltSvg(pattern) {
 
   const entries = [];
   for (const op of OPS) {
-    for (const pattern of PATTERNS) {
-      const file = `${op}-${pattern}.png`;
-      const svg = op === 'generic' ? genericBoltSvg(pattern) : frameSvg(pattern);
-      let img = sharp(svg);
-      if (op !== 'generic') {
-        img = img.composite([{ input: logos[op], left: Math.round(LOGO_CX - LOGO / 2), top: Math.round(LOGO_CY - LOGO / 2) }]);
+    for (const [cat, catColor] of Object.entries(CATS)) {
+      for (const pattern of PATTERNS) {
+        const file = `${op}-${cat}-${pattern}.png`;
+        let svg = frameSvg(catColor, pattern);
+        if (op === 'generic') {
+          svg = svg.replace('</svg>', `<path d="M80 26 L54 66 L72 66 L64 96 L94 52 L76 52 Z" fill="#1AA63F"/></svg>`);
+        }
+        let img = sharp(Buffer.from(svg));
+        if (op !== 'generic') {
+          img = img.composite([{ input: logos[op], left: Math.round(LOGO_CX - LOGO / 2), top: Math.round(LOGO_CY - LOGO / 2) }]);
+        }
+        await img.png().toFile(path.join(OUT_DIR, file));
+        entries.push(`  '${op}-${cat}-${pattern}': require('../assets/operators/markers/${file}'),`);
       }
-      await img.png().toFile(path.join(OUT_DIR, file));
-      entries.push(`  '${op}-${pattern}': require('../assets/operators/markers/${file}'),`);
     }
   }
 
   const ts = `import type { ImageSourcePropType } from 'react-native';
-import type { StationStatus } from '@/types/stations';
+import type { ChargerCategory, StationStatus } from '@/types/stations';
 
 /**
  * AUTO-GENERATED by scripts/gen-markers.cjs. Pre-composited map markers: operator logo +
- * availability ring + one status dot per charger. Static images via the Marker \`source\`
- * prop render reliably (unlike React-child <Image>, which the Yandex bitmap snapshot misses).
- * Regenerate after changing operator logos or the marker design.
+ * category-colored ring (ultra/dc/hybrid/ac) + one status dot per charger. Static images via
+ * the Marker \`source\` prop render reliably (a React-child <Image> is missed by the Yandex
+ * bitmap snapshot). Regenerate after changing logos, categories, or the design.
  */
 const MARKERS: Record<string, ImageSourcePropType> = {
 ${entries.join('\n')}
@@ -113,29 +105,33 @@ const LETTER: Record<StationStatus, string> = {
   available: 'A',
   in_use: 'I',
   offline: 'O',
-  unknown: 'U',
+  unknown: 'O',
 };
-const ORDER = 'AIOU';
+const ORDER = 'AIO';
 const MAX_DOTS = ${MAX_DOTS};
 
-/** Build the pattern key from a station's connector statuses (sorted + capped). */
 function patternOf(statuses: StationStatus[]): string {
   const letters = (statuses.length ? statuses : (['unknown'] as StationStatus[]))
-    .map((s) => LETTER[s] ?? 'U')
+    .map((s) => LETTER[s] ?? 'O')
     .sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b))
     .slice(0, MAX_DOTS);
   return letters.join('');
 }
 
-export function markerImage(operatorId: string | undefined, statuses: StationStatus[]): ImageSourcePropType {
+export function markerImage(
+  operatorId: string | undefined,
+  category: ChargerCategory | undefined,
+  statuses: StationStatus[],
+): ImageSourcePropType {
   const pattern = patternOf(statuses);
+  const cat: ChargerCategory = category ?? 'dc';
   return (
-    MARKERS[\`\${operatorId}-\${pattern}\`] ??
-    MARKERS[\`generic-\${pattern}\`] ??
-    MARKERS['generic-U']
+    MARKERS[\`\${operatorId}-\${cat}-\${pattern}\`] ??
+    MARKERS[\`generic-\${cat}-\${pattern}\`] ??
+    MARKERS['generic-dc-O']
   );
 }
 `;
   fs.writeFileSync(TS_FILE, ts);
-  console.log(`generated ${OPS.length * PATTERNS.length} marker PNGs + markerImages.ts (${PATTERNS.length} patterns/op)`);
+  console.log(`generated ${OPS.length * Object.keys(CATS).length * PATTERNS.length} markers (${PATTERNS.length} patterns × ${Object.keys(CATS).length} cats × ${OPS.length} ops)`);
 })();

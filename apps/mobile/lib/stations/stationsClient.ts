@@ -127,6 +127,11 @@ function normalizeStation(raw: unknown, idx: number): Station | null {
       : typeof raw.primarySource === 'string'
         ? raw.primarySource
         : undefined;
+  const category =
+    raw.category === 'ac' || raw.category === 'dc' || raw.category === 'ultra' || raw.category === 'hybrid'
+      ? raw.category
+      : undefined;
+  const maxPowerKw = toNumber(raw.maxPowerKw) ?? undefined;
 
   return {
     id: String(id),
@@ -136,6 +141,8 @@ function normalizeStation(raw: unknown, idx: number): Station | null {
     city: typeof raw.city === 'string' ? raw.city : undefined,
     operator,
     operatorId,
+    category,
+    maxPowerKw,
     status: stationStatus,
     connectors,
     amenities: Array.isArray(raw.amenities) ? raw.amenities.filter((a): a is string => typeof a === 'string') : undefined,

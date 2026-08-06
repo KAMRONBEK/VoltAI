@@ -1,5 +1,7 @@
 export type StationStatus = 'available' | 'in_use' | 'offline' | 'unknown';
 
+export type ChargerCategory = 'ac' | 'dc' | 'ultra' | 'hybrid';
+
 export interface LatLng {
   latitude: number;
   longitude: number;
@@ -32,6 +34,8 @@ export interface Station {
   city?: string;
   operator?: string;
   operatorId?: string;
+  category?: ChargerCategory;
+  maxPowerKw?: number;
   connectors: StationConnector[];
   status: StationStatus; // station-level summary
   pricing?: StationPricing;

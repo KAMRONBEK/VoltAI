@@ -6,6 +6,7 @@ import { getApps } from 'react-native-map-link';
 import { ThemedText } from '@/components/themed-text';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { categoryInfo } from '@/lib/categories';
 import { operatorFor } from '@/lib/operators';
 import type { Station, StationConnector } from '@/types/stations';
 
@@ -183,6 +184,19 @@ export function StationBottomSheet({ stations, onClose }: Props) {
                     <ThemedText style={styles.statusChipText}>{formatStatus(activeStation.status)}</ThemedText>
                   </View>
                 </View>
+                {(() => {
+                  const cat = categoryInfo(activeStation.category);
+                  const kw = activeStation.maxPowerKw;
+                  return (
+                    <View style={[styles.catChip, { backgroundColor: `${cat.color}22`, borderColor: `${cat.color}77` }]}>
+                      <View style={[styles.catDot, { backgroundColor: cat.color }]} />
+                      <ThemedText style={[styles.catText, { color: cat.color }]}>
+                        {cat.label}
+                        {kw ? ` · ${Math.round(kw)} kW` : ''}
+                      </ThemedText>
+                    </View>
+                  );
+                })()}
               </View>
             </View>
 
@@ -355,6 +369,19 @@ const styles = StyleSheet.create({
   statusChip: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   statusChipText: { fontSize: 13, opacity: 0.9 },
   statusDot: { width: 9, height: 9, borderRadius: 999 },
+  catChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    marginTop: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  catDot: { width: 7, height: 7, borderRadius: 999 },
+  catText: { fontSize: 12, fontWeight: '800' },
   switchRow: { marginTop: 12, flexDirection: 'row', gap: 8 },
   switchChip: {
     flexDirection: 'row',
