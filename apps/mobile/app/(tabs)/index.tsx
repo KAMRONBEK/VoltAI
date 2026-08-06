@@ -173,7 +173,7 @@ export default function StationsMapScreen() {
             identifier={group.id}
             onPress={(e) => setSelectedGroupId(e.nativeEvent.identifier ?? group.id)}
             anchor={{ x: 0.5, y: 0.5 }}
-            scale={isSelected ? 1.2 : 0.82}
+            scale={isSelected ? 1.15 : 0.8}
             zIndex={isSelected ? 10 : 1}
             source={markerImage(primary?.operatorId, primary?.status ?? 'unknown')}
           />
