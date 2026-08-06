@@ -14,6 +14,8 @@ export interface TokborDetail {
   electricityFee?: number; // per kWh
   idleFee?: number; // parking/idle
   connectorCount?: number;
+  /** Per-connector plug/port type names (e.g. "GBT", "CCS", "CHAdeMO", "Type2"). */
+  plugs?: string[];
 }
 
 let cache: Map<string, TokborDetail> | null = null;

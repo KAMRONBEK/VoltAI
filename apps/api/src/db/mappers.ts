@@ -7,10 +7,13 @@
  *   - preserves `connectors[].power`
  */
 
+type ChargerCategory = "ac" | "dc" | "ultra" | "hybrid";
+
 type WireConnector = {
   type: string;
   power?: number;
   status?: string;
+  category?: ChargerCategory;
   count?: number;
   pricePerKwh?: number;
   parkingFee?: number;
@@ -34,6 +37,10 @@ export type StationWire = {
   operatorId: string;
   /** Overall station availability derived from its connectors. */
   status: "available" | "in_use" | "offline" | "unknown";
+  /** Charger category for map/detail distinction (high-power DC vs hybrid vs AC). */
+  category: ChargerCategory;
+  /** Highest connector power in kW (0 if unknown). */
+  maxPowerKw: number;
   /** Best-available pricing across connectors, if any source reports it. */
   pricing?: { currency: string; perKwh?: number; parkingFee?: number };
   createdAt: string;
@@ -71,6 +78,19 @@ function derivePricing(connectors: WireConnector[]): StationWire["pricing"] {
   };
 }
 
+function maxPower(connectors: WireConnector[]): number {
+  return connectors.reduce((m, c) => Math.max(m, typeof c.power === "number" ? c.power : 0), 0);
+}
+
+/** Category from an explicit per-connector hint (e.g. Tokbor HYBRID) else from power. */
+function deriveCategory(connectors: WireConnector[], power: number): ChargerCategory {
+  const explicit = connectors.find((c) => c.category)?.category;
+  if (explicit) return explicit;
+  if (power >= 150) return "ultra";
+  if (power >= 43) return "dc";
+  return "ac";
+}
+
 function parseJsonArray<T>(value: unknown): T[] {
   if (typeof value !== "string" || !value) return [];
   try {
@@ -99,6 +119,8 @@ export function rowToStation(r: Record<string, any>): StationWire {
     operatorId: primarySource,
     operator: OPERATOR_NAMES[primarySource] ?? primarySource,
     status: deriveStatus(connectors),
+    category: deriveCategory(connectors, maxPower(connectors)),
+    maxPowerKw: maxPower(connectors),
     pricing: derivePricing(connectors),
     createdAt: r.created_at,
     updatedAt: r.updated_at,

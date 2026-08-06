@@ -66,10 +66,11 @@ function parseSpectre(payload: unknown): RawStationInput[] {
       continue;
     }
 
+    // Spectre's connector-types catalog is entirely GB/T (China) DC plugs.
     const connectors: Connector[] = [];
     if (Number.isFinite(Number(row.energy_power))) {
       connectors.push({
-        type: "unknown",
+        type: "GB/T",
         power: Number(row.energy_power),
         status: statusLabel(row.status_id)
       });

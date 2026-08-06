@@ -13,10 +13,15 @@ export interface GeoPoint {
   coordinates: [number, number];
 }
 
+/** Charger category used to distinguish e.g. high-power DC from hybrid/AC on the map. */
+export type ChargerCategory = "ac" | "dc" | "ultra" | "hybrid";
+
 export interface Connector {
   type: string;
   power?: number;
   status?: string;
+  /** Charger category for this connector (drives the map high-power/hybrid distinction). */
+  category?: ChargerCategory;
   /** How many physical connectors of this type/power the station has. */
   count?: number;
   /** Price per kWh in minor-unit-free local currency (e.g. UZS sum). */

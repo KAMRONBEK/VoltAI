@@ -1,5 +1,5 @@
 import type { AppScraperConfig } from "./base";
-import type { Connector, RawStationInput } from "../../src/types/station";
+import type { ChargerCategory, Connector, RawStationInput } from "../../src/types/station";
 import { getTokborDetail } from "./tokborDetailCache";
 
 /**
@@ -26,6 +26,14 @@ const STATUS_MAP: Record<string, string> = {
   MAINTENANCE: "maintenance",
   POWEROFF: "offline",
   EMERGENCY_STOP: "offline"
+};
+
+// Tokbor's list `type` is the charger category.
+const CATEGORY_MAP: Record<string, ChargerCategory> = {
+  DC: "dc",
+  ULTRA: "ultra",
+  HYBRID: "hybrid",
+  AC: "ac"
 };
 
 interface TokborPin {
@@ -56,17 +64,21 @@ function parseTokbor(payload: unknown): RawStationInput[] {
       continue;
     }
 
-    const connectorType = typeof row.type === "string" && row.type.trim() ? row.type.trim() : "unknown";
     const status = (typeof row.status === "string" && STATUS_MAP[row.status]) || "unknown";
+    const category = CATEGORY_MAP[String(row.type).toUpperCase()] ?? "dc";
 
-    // Enrich from the cached per-station detail (name/address/price/power) when available;
-    // fall back to a synthesized name otherwise. See scrapers/http/enrich-tokbor.ts.
+    // Enrich from the cached per-station detail (name/address/price/power/plug types) when
+    // available; fall back to a synthesized name otherwise. See scrapers/http/enrich-tokbor.ts.
     const detail = getTokborDetail(row.id);
-    const count = detail?.connectorCount && detail.connectorCount > 0 ? detail.connectorCount : 1;
-    const connectors: Connector[] = Array.from({ length: count }, () => ({
-      type: connectorType,
+    // Port type comes from the detail's per-connector plug names (GBT / CCS / CHAdeMO / …);
+    // the list only has the coarse DC/HYBRID/AC/ULTRA category.
+    const plugs = detail?.plugs?.length ? detail.plugs : undefined;
+    const count = plugs?.length ?? (detail?.connectorCount && detail.connectorCount > 0 ? detail.connectorCount : 1);
+    const connectors: Connector[] = Array.from({ length: count }, (_unused, i) => ({
+      type: plugs?.[i] ?? (typeof row.type === "string" ? row.type : "unknown"),
       power: detail?.capacity,
       status,
+      category,
       pricePerKwh: detail?.electricityFee,
       parkingFee: detail?.idleFee,
       currency: detail?.electricityFee != null ? "UZS" : undefined

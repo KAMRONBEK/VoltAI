@@ -65,13 +65,21 @@ async function main(): Promise<void> {
   let done = 0;
   await runPool(ids, async (id) => {
     const d = (await http.get(`/charging-station/${id}`)).data as Record<string, unknown>;
+    const connectors = Array.isArray(d.connectors) ? (d.connectors as Record<string, unknown>[]) : [];
+    const plugs = connectors
+      .map((c) => {
+        const plug = c.plug as Record<string, unknown> | undefined;
+        return typeof plug?.name === "string" ? plug.name : undefined;
+      })
+      .filter((p): p is string => Boolean(p));
     out[String(id)] = {
       name: typeof d.name === "string" ? d.name : undefined,
       address: typeof d.address === "string" ? d.address : undefined,
       capacity: typeof d.capacity === "number" ? d.capacity : undefined,
       electricityFee: typeof d.electricityFee === "number" ? d.electricityFee : undefined,
       idleFee: typeof d.idleFee === "number" ? d.idleFee : undefined,
-      connectorCount: Array.isArray(d.connectors) ? d.connectors.length : undefined,
+      connectorCount: connectors.length || undefined,
+      plugs: plugs.length ? plugs : undefined,
     };
     done += 1;
     if (done % 100 === 0) {
