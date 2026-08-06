@@ -23,6 +23,17 @@ app.use(
     origin: corsOrigins.length ? corsOrigins : true
   })
 );
+
+// Opt-in request logging (REQUEST_LOG=1) — handy for verifying what the mobile
+// app actually calls through the adb-reverse bridge.
+if (process.env.REQUEST_LOG === "1") {
+  app.use((req, _res, next) => {
+    // eslint-disable-next-line no-console
+    console.log(`[req] ${req.method} ${req.originalUrl}`);
+    next();
+  });
+}
+
 app.use(express.json({ limit: "12mb" }));
 app.use(async (_req, _res, next) => {
   try {

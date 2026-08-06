@@ -29,12 +29,12 @@ Manual run: `npm run scrape:http` (dry-run, prints counts) /
 
 | Operator | Package | Stack | Auth | Result |
 |---|---|---|---|---|
+| **Tokbor** | `uz.tokbor.tokbor` | Flutter | login-replay | ✅ 1128 live pins |
 | **Spectre Energy** | `uz.spectreEnergy.uz` | Flutter | none | ✅ ~675 points → ~368 stations |
 | **K-Watt** | `org.uicgroup.kwattapp` | Flutter | none | ✅ 88 stations / 205 connectors |
-| **Tokbor** | `uz.tokbor.tokbor` | Flutter | **required** | ⛔ blocked |
-| **Megawatt** | `com.charging123.megawatt` | React Native | **required** | ⛔ blocked |
+| **Megawatt** | `com.charging123.megawatt` | React Native | **required** | ⛔ blocked (captcha + attestation) |
 
-Combined live: **763 raw → 455 canonical stations**, verified end-to-end on the
+Combined live: **1891 raw → 1583 canonical stations**, verified end-to-end on the
 Yandex map on-device.
 
 ## Working endpoints
@@ -57,30 +57,46 @@ Yandex map on-device.
 - Other `core/` endpoints (auth): `charge-point/`, `charge-task/`,
   `charge-transactions/`, `favorite-charge-points-addres/`, `map`.
 
-## Blocked (auth-gated) — endpoints known, need a token
+### Tokbor — `scrapers/apps/tokbor.ts` (login-replay)
 
-Both return **401** for their station data. On-device passive capture is blocked
-(pinning + no root). The clean path is **login-replay**: reproduce the app's OTP
-login over plain HTTP with the user's own number, store the refresh token, and mint
-access tokens for the scraper. This needs the user's participation (OTP) and their
-consent to hold the token — not done yet.
+Auth-gated, cracked via **login-replay** (`scrapers/auth/`): reproduce the OTP
+login over plain HTTP with the user's own number, store the token, scrape with it.
+- Login: `POST /auth/verify-phone-number {phoneNumber, countryCode}` → temp token
+  + 5-digit OTP delivered to the user's **Telegram** (`@tokbor_otp_bot`). Then
+  `POST /auth/verify-otp {code}` with `Authorization: Bearer <temp>` → access token
+  (a **~365-day** JWT, so one login lasts a year; no refresh token is issued).
+- CLI: `npm run auth:tokbor -- send "+998…"` then `-- verify <code>`. Token stored
+  in `data/auth-tokens.json` (gitignored, mode 0600).
+- Stations: `GET https://api.newtokbor.uz/charging-station` **requires** an
+  `app-version` header (else 400 "Ilova versiyasi talab qilinadi"). Returns ~1128
+  pins `{id, lat, lng, status, type}`. No name in the list — real names/addresses
+  are per-station at `GET /charging-station/{id}` (e.g. "LOTTE City Hotels 120 kW"),
+  so we synthesize `Tokbor #<id>` for now (name enrichment is a follow-up).
+- `status`: AVAILABLE / UNAVAILABLE / MAINTENANCE / POWEROFF / EMERGENCY_STOP.
+  `type`: DC / HYBRID / AC / ULTRA.
 
-### Tokbor — `uz.tokbor.tokbor` (Flutter)
-- Base: `https://api.newtokbor.uz`. Live feed: `GET https://ocpp.newtokbor.uz/sse/stations/`
-  (SSE) → 401 "Invalid or missing token". REST `GET /charging-station` and
-  `/charging-station/options` → 401.
-- OTP is delivered via a **Telegram bot** (`@tokbor_otp_bot`), not SMS — harder to
-  automate than an SMS OTP.
-- `https://api.cpanel.newtokbor.uz/api/stations` exists but requires a `secret`
-  query param (not found in the public admin bundle).
+## Blocked (auth-gated) — endpoint known, login not automatable
 
 ### Megawatt — `com.charging123.megawatt` (React Native, ecofactor/charging123 platform)
 - Host: `https://megawatt-app.ecofactortech.com` (also `megawatt.charging123.com`).
 - `GET /api/client/charge-box` → 401 "Unauthorized". No public/map variant found
   (all `/api/*` variants 401). `/client/charge-box` (no `/api`) is a PWA route that
   returns the SPA HTML, not data.
-- Login flow (SMS OTP): `POST /api/client/send-code` → `POST /api/client/auth`,
-  then `Authorization` bearer on `/api/client/charge-box`.
+- Login flow (SMS OTP): `POST /api/client/send-code` → `POST /api/client/auth`.
+- **Why blocked:** `send-code` requires a **puzzle-slider captcha**
+  (`generatePuzzleCaptcha` / `captchaResults` in the RN bundle) **plus hardware
+  attestation** (`x-app-attest-key-id`, `HardwareAttestationSignature`). The
+  attestation binds the request to the physical device's hardware key, so login
+  can't be replayed off-device. Would need on-device Frida (root) or an official
+  operator API key.
+
+## Reusing an existing on-device login is not possible (no root)
+
+The apps are already logged in on the phone, but the token lives in each app's
+private storage. On a non-rooted device that's unreadable: all 4 apps are **not
+debuggable** (so `adb run-as` fails), they don't print the token to logcat, and
+mitm is blocked by pinning. Hence login-replay (fresh token) rather than token
+extraction.
 
 ## Not on the capture device
 `pro-tok` and `beon` configs exist but those apps were not installed on the phone,
