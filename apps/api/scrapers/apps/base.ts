@@ -1,6 +1,20 @@
 import type { RawStationInput, SourceId } from "../../src/types/station";
 import type { AppSelectors } from "../appium/loginFlow";
 
+/**
+ * A public operator endpoint that returns station data directly (the "hybrid"
+ * off-device path). We reverse-engineered these from the shipped APKs (Dart AOT
+ * `libapp.so` string tables) because on-device TLS interception is blocked by
+ * cert pinning on Android 15 with no root. See ARCHITECTURE.md / GATES.md.
+ */
+export interface HttpEndpoint {
+  url: string;
+  method?: "GET" | "POST";
+  headers?: Record<string, string>;
+  /** Optional JSON body for POST endpoints. */
+  body?: unknown;
+}
+
 export interface AppScraperConfig {
   sourceId: SourceId;
   packageName: string;
@@ -9,6 +23,12 @@ export interface AppScraperConfig {
   grizzlyServiceCode?: string;
   grizzlyCountryCode?: string;
   parseResponse: (payload: unknown) => RawStationInput[];
+  /**
+   * Direct HTTP endpoints for off-device scraping. When present, the http
+   * scraper (scrapers/http) fetches each URL and feeds the body through
+   * `parseResponse`. Absent = capture-only (Appium/mitm) source.
+   */
+  http?: HttpEndpoint[];
 }
 
 export function fallbackParseStations(sourceId: SourceId, payload: unknown): RawStationInput[] {
