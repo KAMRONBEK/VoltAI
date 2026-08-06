@@ -29,13 +29,13 @@ Manual run: `npm run scrape:http` (dry-run, prints counts) /
 
 | Operator | Package | Stack | Auth | Result |
 |---|---|---|---|---|
-| **Tokbor** | `uz.tokbor.tokbor` | Flutter | login-replay | ✅ 1128 live pins |
+| **Tokbor** | `uz.tokbor.tokbor` | Flutter | login-replay | ✅ ~664 named stations (1127 pins) |
 | **Spectre Energy** | `uz.spectreEnergy.uz` | Flutter | none | ✅ ~675 points → ~368 stations |
 | **K-Watt** | `org.uicgroup.kwattapp` | Flutter | none | ✅ 88 stations / 205 connectors |
 | **Megawatt** | `com.charging123.megawatt` | React Native | **required** | ⛔ blocked (captcha + attestation) |
 
-Combined live: **1891 raw → 1583 canonical stations**, verified end-to-end on the
-Yandex map on-device.
+Combined live: **~1890 raw → ~1117 canonical stations**, verified end-to-end on the
+Yandex map on-device (operator-logo markers, clustering, price/power/connectors).
 
 ## Working endpoints
 
@@ -69,9 +69,14 @@ login over plain HTTP with the user's own number, store the token, scrape with i
   in `data/auth-tokens.json` (gitignored, mode 0600).
 - Stations: `GET https://api.newtokbor.uz/charging-station` **requires** an
   `app-version` header (else 400 "Ilova versiyasi talab qilinadi"). Returns ~1128
-  pins `{id, lat, lng, status, type}`. No name in the list — real names/addresses
-  are per-station at `GET /charging-station/{id}` (e.g. "LOTTE City Hotels 120 kW"),
-  so we synthesize `Tokbor #<id>` for now (name enrichment is a follow-up).
+  pins `{id, lat, lng, status, type}`. No name in the list.
+- **Enrichment**: `npm run enrich:tokbor` fetches `GET /charging-station/{id}` for
+  every station (concurrency-limited, uses the stored login) and caches
+  name/address/capacity/electricityFee/idleFee to `data/tokbor-details.json`
+  (gitignored). The scraper merges that cache with the live status list each tick,
+  so pins carry real names ("High town mall 120kW"), power, and UZS pricing. Re-run
+  occasionally to pick up new stations. Named multi-connector pins collapse to real
+  stations in the merge (~1127 pins → ~664 canonical Tokbor).
 - `status`: AVAILABLE / UNAVAILABLE / MAINTENANCE / POWEROFF / EMERGENCY_STOP.
   `type`: DC / HYBRID / AC / ULTRA.
 
