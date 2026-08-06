@@ -166,16 +166,20 @@ export default function StationsMapScreen() {
       stationGroups.map((group) => {
         const isSelected = group.id === selectedGroupId;
         const primary = group.stations[0];
+        // One status per connector/charger across all stations at this exact spot → the
+        // marker image shows a colored dot per charger + the operator logo.
+        const statuses = group.stations.flatMap((s) => s.connectors.map((c) => c.status));
         return (
           <Marker
             key={group.id}
             point={group.location}
             identifier={group.id}
             onPress={(e) => setSelectedGroupId(e.nativeEvent.identifier ?? group.id)}
-            anchor={{ x: 0.5, y: 0.5 }}
-            scale={isSelected ? 1.15 : 0.8}
+            // Image is 148x176 with the logo centred at y≈58 → anchor on the logo.
+            anchor={{ x: 0.5, y: 0.33 }}
+            scale={isSelected ? 0.92 : 0.72}
             zIndex={isSelected ? 10 : 1}
-            source={markerImage(primary?.operatorId, primary?.status ?? 'unknown')}
+            source={markerImage(primary?.operatorId, statuses.length ? statuses : [primary?.status ?? 'unknown'])}
           />
         );
       }),
@@ -199,8 +203,8 @@ export default function StationsMapScreen() {
           clusterTextColor="#07120B"
           clusterSize={46}
           clusterTextSize={13}
-          clusterRadius={60}
-          minZoom={16}>
+          clusterRadius={50}
+          minZoom={14}>
           {markers}
         </Clusterer>
       </YandexMapView>
