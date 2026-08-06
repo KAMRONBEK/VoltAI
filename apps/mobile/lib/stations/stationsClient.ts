@@ -159,6 +159,41 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Respons
   }
 }
 
+function buildPageUrl(baseUrl: string, page?: number, limit?: number): string {
+  const u = new URL(baseUrl);
+  if (typeof page === 'number' && Number.isFinite(page)) u.searchParams.set('page', String(page));
+  if (typeof limit === 'number' && Number.isFinite(limit)) u.searchParams.set('limit', String(limit));
+  return u.toString();
+}
+
+async function fetchJson(url: string, timeoutMs: number): Promise<unknown> {
+  const res = await fetchWithTimeout(url, timeoutMs);
+  if (!res.ok) {
+    throw new Error(`Stations API HTTP ${res.status}`);
+  }
+  return (await res.json()) as unknown;
+}
+
+// The map needs EVERY station, but the API paginates (default 50, max 200 per page).
+// Walk all pages until we've collected `total` (bounded so a misbehaving API can't loop forever).
+const PAGE_SIZE = 200;
+const MAX_PAGES = 100;
+
+async function fetchAllRawStations(baseUrl: string, timeoutMs: number): Promise<unknown[]> {
+  const all: unknown[] = [];
+  for (let page = 1; page <= MAX_PAGES; page += 1) {
+    const json = await fetchJson(buildPageUrl(baseUrl, page, PAGE_SIZE), timeoutMs);
+    const items = extractStationsArray(json);
+    all.push(...items);
+
+    const total = isRecord(json) ? toNumber(json.total) : null;
+    if (items.length === 0) break; // no more data
+    if (total !== null && all.length >= total) break; // got everything
+    if (items.length < PAGE_SIZE) break; // last (short) page
+  }
+  return all;
+}
+
 async function loadCachedStations(): Promise<Station[] | null> {
   const cached = await getJson<StationsCache>(StorageKeys.stationsCache);
   if (!cached?.stations?.length) return null;
@@ -178,22 +213,14 @@ export async function listStations(opts?: {
 }): Promise<StationsListResult> {
   const baseUrl = opts?.url ?? STATIONS_API_URL;
   const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const url = (() => {
-    // Keep backward compatibility, but allow pagination if needed.
-    const u = new URL(baseUrl);
-    if (typeof opts?.page === 'number' && Number.isFinite(opts.page)) u.searchParams.set('page', String(opts.page));
-    if (typeof opts?.limit === 'number' && Number.isFinite(opts.limit)) u.searchParams.set('limit', String(opts.limit));
-    return u.toString();
-  })();
+  const explicitPage = typeof opts?.page === 'number' && Number.isFinite(opts.page);
 
   try {
-    const res = await fetchWithTimeout(url, timeoutMs);
-    if (!res.ok) {
-      throw new Error(`Stations API HTTP ${res.status}`);
-    }
-
-    const json = (await res.json()) as unknown;
-    const array = extractStationsArray(json);
+    // Default (map) mode fetches every page so all operators' stations show.
+    // An explicit `page` opt still fetches just that single page (backward compat).
+    const array = explicitPage
+      ? extractStationsArray(await fetchJson(buildPageUrl(baseUrl, opts?.page, opts?.limit), timeoutMs))
+      : await fetchAllRawStations(baseUrl, timeoutMs);
     const stations = array.map(normalizeStation).filter((s): s is Station => s !== null);
 
     // If we can’t parse anything sensible, still fall back to mock so the UI remains usable.
