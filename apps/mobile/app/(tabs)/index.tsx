@@ -15,7 +15,7 @@ import * as Location from 'expo-location';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, AppState, Pressable, StyleSheet, View } from 'react-native';
 import { Clusterer, Marker, YandexMapView, type YandexMapViewRef } from 'expo-yandex-mapkit';
 
 const UZBEKISTAN_CAMERA = {
@@ -86,6 +86,8 @@ export default function StationsMapScreen() {
     let cancelled = false;
 
     async function pollStatuses() {
+      // Don't poll while backgrounded — saves battery/network; we refresh on foreground instead.
+      if (AppState.currentState !== 'active') return;
       const result = await fetchStationStatuses({ etag: statusEtagRef.current });
       if (cancelled || !result) return;
       // A 200 (fresh data) or a 304 (confirmed current) both count as a successful sync.
@@ -120,9 +122,15 @@ export default function StationsMapScreen() {
     }
 
     const timer = setInterval(pollStatuses, STATUS_POLL_MS);
+    // Refresh immediately when the app returns to the foreground, rather than waiting up to 60s.
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void pollStatuses();
+    });
+
     return () => {
       cancelled = true;
       clearInterval(timer);
+      appStateSub.remove();
     };
   }, [stations.length]);
 
