@@ -7,6 +7,7 @@ import { connectDatabase } from "./db/sqlite";
 import { countStations } from "./repositories/stationRepo";
 import { countRawStations } from "./repositories/rawStationRepo";
 import { getMeta } from "./repositories/metaRepo";
+import { envInt } from "./utils/httpCache";
 import { appScraperConfigs } from "../scrapers/apps";
 
 dotenv.config();
@@ -52,7 +53,7 @@ app.get("/api/health", (_req, res) => {
 // `secondsSinceLastScrape` + `stale` let an external monitor (or the on-device watchdog) catch
 // a scheduler that has silently stopped ticking even though the process is still answering.
 app.get("/api/health/detail", (_req, res) => {
-  const staleAfterSec = Number(process.env.STATIONS_STALE_AFTER_SEC ?? 900);
+  const staleAfterSec = envInt("STATIONS_STALE_AFTER_SEC", 900);
   const lastScrapeAt = getMeta("lastScrapeAt");
   const secondsSinceLastScrape = lastScrapeAt
     ? Math.floor((Date.now() - Date.parse(lastScrapeAt)) / 1000)

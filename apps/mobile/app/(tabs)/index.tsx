@@ -94,7 +94,9 @@ export default function StationsMapScreen() {
       setLastSyncAt(Date.now());
       if (result.kind === 'not-modified') return;
 
-      statusEtagRef.current = result.etag;
+      // Keep the last good ETag if a proxy stripped it from this response, so we don't silently
+      // lose the 304 optimization on every subsequent poll.
+      if (result.etag) statusEtagRef.current = result.etag;
       const updates = result.updates;
       if (!updates.length) return;
       const byId = new Map(updates.map((u) => [u.id, u]));
@@ -104,15 +106,22 @@ export default function StationsMapScreen() {
         const next = prev.map((s) => {
           const u = byId.get(s.id);
           if (!u) return s;
+          // Only patch per-connector status when the feed and catalog agree on connector
+          // count — the catalog can drop a connector the feed keeps, and index-matching a
+          // shorter array would apply statuses to the wrong connectors. On a mismatch, fall
+          // back to updating just the station's overall status.
           let connectorsChanged = false;
-          const connectors = s.connectors.map((c, i) => {
-            const nextStatus = u.connectors[i];
-            if (nextStatus && nextStatus !== c.status) {
-              connectorsChanged = true;
-              return { ...c, status: nextStatus };
-            }
-            return c;
-          });
+          const connectors =
+            u.connectors.length === s.connectors.length
+              ? s.connectors.map((c, i) => {
+                  const nextStatus = u.connectors[i];
+                  if (nextStatus && nextStatus !== c.status) {
+                    connectorsChanged = true;
+                    return { ...c, status: nextStatus };
+                  }
+                  return c;
+                })
+              : s.connectors;
           if (!connectorsChanged && u.status === s.status) return s;
           changed = true;
           return { ...s, status: u.status, connectors };

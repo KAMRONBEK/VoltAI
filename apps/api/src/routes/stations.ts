@@ -29,7 +29,7 @@ const STATUSES_CACHE: CachePolicy = {
   sie: 3600,
 };
 
-// How long since the last merge before we flag the data as stale (default 2x the 5-min cycle).
+// How long since the last merge before we flag the data as stale (default 900s = 3x the 5-min cycle).
 const STALE_AFTER_SEC = envInt("STATIONS_STALE_AFTER_SEC", 900);
 
 function freshness(): { lastMergeAt: string | null; ageSec: number | null; stale: boolean } {
@@ -67,10 +67,12 @@ router.get("/", (req, res, next) => {
 router.get("/statuses", (req, res, next) => {
   try {
     const { lastMergeAt, ageSec, stale } = freshness();
-    const items = listStationStatuses();
-    const tag = `st-${lastMergeAt ?? "0"}-${items.length}`;
+    // lastMergeAt alone uniquely versions the payload (every merge rewrites the whole table), so
+    // answer the 304 BEFORE running the projection — the ~4-of-5 idle polls then skip the query.
+    const tag = `st-${lastMergeAt ?? "0"}`;
     if (applyCache(req, res, STATUSES_CACHE, { lastModified: lastMergeAt, tag })) return;
 
+    const items = listStationStatuses();
     res.json({
       generatedAt: new Date().toISOString(),
       lastMergeAt,
@@ -94,6 +96,10 @@ router.get("/nearby", (req, res, next) => {
       return res.status(400).json({ message: "lat and lng query params are required" });
     }
 
+    const { lastMergeAt } = freshness();
+    const tag = `nb-${lastMergeAt ?? "0"}-${lat.toFixed(4)}-${lng.toFixed(4)}-${radius}`;
+    if (applyCache(req, res, LIST_CACHE, { lastModified: lastMergeAt, tag })) return;
+
     const items = nearbyStations(lat, lng, radius);
     return res.json({ count: items.length, items });
   } catch (error) {
@@ -107,6 +113,10 @@ router.get("/search", (req, res, next) => {
     if (!q) {
       return res.status(400).json({ message: "q query param is required" });
     }
+
+    const { lastMergeAt } = freshness();
+    const tag = `se-${lastMergeAt ?? "0"}-${q.toLowerCase()}`;
+    if (applyCache(req, res, LIST_CACHE, { lastModified: lastMergeAt, tag })) return;
 
     const items = searchStations(q);
     return res.json({ count: items.length, items });

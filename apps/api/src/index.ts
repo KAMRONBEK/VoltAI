@@ -61,11 +61,10 @@ async function refresh(trigger: string): Promise<void> {
     }
 
     const { mergedCount } = await mergeStations();
-    const finishedAt = new Date().toISOString();
-    setMeta("lastMergeAt", finishedAt);
-    // Records that a full scrape cycle completed — powers the freshness/stale check in
-    // /api/health/detail so a stalled scheduler on the phone is detectable.
-    setMeta("lastScrapeAt", finishedAt);
+    // mergeStations() -> replaceAllStations() already recorded lastMergeAt; here we only mark that
+    // a full scrape cycle completed — powers the freshness/stale check in /api/health/detail so a
+    // stalled scheduler on the phone is detectable.
+    setMeta("lastScrapeAt", new Date().toISOString());
     // eslint-disable-next-line no-console
     console.log(`[scrape:${trigger}] ${total} raw → ${mergedCount} canonical stations`);
   } catch (error) {
