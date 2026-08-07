@@ -2,6 +2,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { OfflineBanner } from '@/components/offline-banner';
 import { FilterFab } from '@/components/stations/filter-fab';
+import { LiveStatusPill } from '@/components/stations/live-status-pill';
 import { MapLegend } from '@/components/stations/map-legend';
 import { StationBottomSheet } from '@/components/stations/station-bottom-sheet';
 import { markerImage } from '@/lib/markerImages';
@@ -38,6 +39,9 @@ export default function StationsMapScreen() {
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [isLoadingStations, setIsLoadingStations] = useState(true);
   const [stationsApiError, setStationsApiError] = useState<string | undefined>(undefined);
+  // Timestamp of the last successful sync with the backend (initial load or a status poll) —
+  // drives the "Live" freshness pill.
+  const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
 
   type StationGroup = { id: string; location: Station['location']; stations: Station[] };
 
@@ -57,6 +61,7 @@ export default function StationsMapScreen() {
         if (cancelled) return;
         setStations(stationsResult.stations);
         setStationsApiError(stationsResult.apiError);
+        if (stationsResult.source === 'api') setLastSyncAt(Date.now());
       } finally {
         if (!cancelled) setIsLoadingStations(false);
       }
@@ -82,7 +87,10 @@ export default function StationsMapScreen() {
 
     async function pollStatuses() {
       const result = await fetchStationStatuses({ etag: statusEtagRef.current });
-      if (cancelled || !result || result.kind === 'not-modified') return;
+      if (cancelled || !result) return;
+      // A 200 (fresh data) or a 304 (confirmed current) both count as a successful sync.
+      setLastSyncAt(Date.now());
+      if (result.kind === 'not-modified') return;
 
       statusEtagRef.current = result.etag;
       const updates = result.updates;
@@ -281,7 +289,9 @@ export default function StationsMapScreen() {
             <ThemedText type="defaultSemiBold">Stations data</ThemedText>
             <ThemedText>{stationsApiError}</ThemedText>
           </View>
-        ) : null}
+        ) : (
+          <LiveStatusPill lastSyncAt={lastSyncAt} isOffline={isOffline} />
+        )}
       </View>
 
       <View style={[styles.fabColumn, { bottom: insets.bottom + 70 }]}>
