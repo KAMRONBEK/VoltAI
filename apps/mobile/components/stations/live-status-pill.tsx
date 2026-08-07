@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { useThemeColors } from '@/lib/theme/theme-context';
 
 /**
  * Compact "Live" indicator for the map. Shows that the app is actively in sync with the backend
@@ -29,6 +30,7 @@ type Props = {
 };
 
 export function LiveStatusPill({ lastSyncAt, isOffline }: Props) {
+  const c = useThemeColors();
   // Re-render on a ticker so the relative label ("1m ago") stays current between polls.
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -65,9 +67,9 @@ export function LiveStatusPill({ lastSyncAt, isOffline }: Props) {
   }, [isOffline, lastSyncAt, live, ageSec]);
 
   return (
-    <View style={styles.pill}>
+    <View style={[styles.pill, { backgroundColor: c.chrome, borderColor: c.chromeBorder }]}>
       <Animated.View style={[styles.dot, { backgroundColor: color, opacity: pulse }]} />
-      <ThemedText style={styles.text}>{label}</ThemedText>
+      <ThemedText style={[styles.text, { color: c.chromeText }]}>{label}</ThemedText>
     </View>
   );
 }
@@ -81,9 +83,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
     paddingVertical: 7,
     borderRadius: 999,
-    backgroundColor: 'rgba(18, 18, 18, 0.92)',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255, 255, 255, 0.10)',
   },
   dot: {
     width: 8,

@@ -1,10 +1,15 @@
 import { useColorScheme as useRNColorScheme } from 'react-native';
 
+import { useThemeContextOptional } from '@/lib/theme/theme-context';
+
 /**
- * Returns a narrowed `'light' | 'dark'`. React Native 0.86 widened `ColorSchemeName`
- * to include `'unspecified'` (and null), which can't index our `Colors` map — so we
- * treat anything that isn't `'dark'` as `'light'` (the Expo default).
+ * Returns the app's active `'light' | 'dark'` scheme. When a ThemeProvider is mounted this
+ * reflects the user's persisted preference (system/light/dark); otherwise it falls back to the
+ * OS scheme. React Native 0.86 widened `ColorSchemeName` to include `'unspecified'`/null, so
+ * anything that isn't `'dark'` is treated as `'light'` (the Expo default).
  */
 export function useColorScheme(): 'light' | 'dark' {
-  return useRNColorScheme() === 'dark' ? 'dark' : 'light';
+  const ctx = useThemeContextOptional();
+  const os = useRNColorScheme() === 'dark' ? 'dark' : 'light';
+  return ctx ? ctx.scheme : os;
 }

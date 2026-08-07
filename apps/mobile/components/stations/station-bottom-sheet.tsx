@@ -1,13 +1,13 @@
-import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
+import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, View } from 'react-native';
 import { getApps } from 'react-native-map-link';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
 import { categoryInfo } from '@/lib/categories';
 import { operatorFor } from '@/lib/operators';
+import { useThemeColors } from '@/lib/theme/theme-context';
 import type { Station, StationConnector } from '@/types/stations';
 
 type Props = {
@@ -71,7 +71,8 @@ type NavApp = { id: string; name: string; icon: unknown; open: () => Promise<str
 const APPS_WHITELIST = ['google-maps', 'apple-maps', 'yandex', 'yandex-maps', 'dgis', 'maps-me', 'waze'];
 
 export function StationBottomSheet({ stations, onClose }: Props) {
-  const colorScheme = useColorScheme() ?? 'dark';
+  const c = useThemeColors();
+  const insets = useSafeAreaInsets();
   const sheetRef = useRef<BottomSheet | null>(null);
   const snapPoints = useMemo(() => [200, 380, '88%'], []);
 
@@ -91,9 +92,9 @@ export function StationBottomSheet({ stations, onClose }: Props) {
 
   useEffect(() => {
     if (!sheetRef.current) return;
-    if (stationsList.length) sheetRef.current.snapToIndex(1);
+    if (stationsIdsKey) sheetRef.current.snapToIndex(1);
     else sheetRef.current.close();
-  }, [stationsList.length]);
+  }, [stationsIdsKey]);
 
   if (prevStationsKey !== stationsIdsKey) {
     setPrevStationsKey(stationsIdsKey);
@@ -109,8 +110,6 @@ export function StationBottomSheet({ stations, onClose }: Props) {
     if (!activeStationId) return stationsList[0] ?? null;
     return stationsList.find((s) => s.id === activeStationId) ?? stationsList[0] ?? null;
   }, [activeStationId, stationsList]);
-
-  const backgroundColor = Colors[colorScheme].background;
 
   const op = activeStation ? operatorFor(activeStation.operatorId) : null;
   const connectorRows = useMemo(
@@ -154,9 +153,11 @@ export function StationBottomSheet({ stations, onClose }: Props) {
       snapPoints={snapPoints}
       enablePanDownToClose
       onClose={onClose}
-      backgroundStyle={[styles.sheetBackground, { backgroundColor }]}
-      handleIndicatorStyle={{ backgroundColor: 'rgba(255,255,255,0.25)' }}>
-      <BottomSheetView style={styles.content}>
+      backgroundStyle={[styles.sheetBackground, { backgroundColor: c.background }]}
+      handleIndicatorStyle={{ backgroundColor: c.handle }}>
+      <BottomSheetScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 88 }]}
+        showsVerticalScrollIndicator={false}>
         {activeStation && op ? (
           <>
             {/* Header: operator logo + name + status */}
@@ -209,7 +210,11 @@ export function StationBottomSheet({ stations, onClose }: Props) {
                     <Pressable
                       key={s.id}
                       onPress={() => setActiveStationId(s.id)}
-                      style={[styles.switchChip, isOn ? { borderColor: `${BRAND}99`, backgroundColor: `${BRAND}1A` } : null]}
+                      style={[
+                        styles.switchChip,
+                        { backgroundColor: c.surface, borderColor: c.border },
+                        isOn ? { borderColor: `${BRAND}99`, backgroundColor: `${BRAND}1A` } : null,
+                      ]}
                       accessibilityRole="button">
                       <View style={[styles.smallDot, { backgroundColor: statusDotColor(s.status) }]} />
                       <ThemedText type="defaultSemiBold" numberOfLines={1} style={styles.switchChipText}>
@@ -223,27 +228,27 @@ export function StationBottomSheet({ stations, onClose }: Props) {
 
             {/* Stat cards: price / power / connectors */}
             <View style={styles.statsRow}>
-              <View style={styles.statCard}>
+              <View style={[styles.statCard, { backgroundColor: c.surface, borderColor: c.border }]}>
                 <ThemedText style={styles.statValue}>
                   {activeStation.pricing?.perKwh != null ? formatMoney(activeStation.pricing.perKwh) : '—'}
                 </ThemedText>
-                <ThemedText style={styles.statLabel}>
+                <ThemedText style={[styles.statLabel, { color: c.textMuted }]}>
                   {activeStation.pricing?.perKwh != null ? `${activeStation.pricing.currency ?? 'UZS'} / kWh` : 'Price'}
                 </ThemedText>
               </View>
-              <View style={styles.statCard}>
+              <View style={[styles.statCard, { backgroundColor: c.surface, borderColor: c.border }]}>
                 <ThemedText style={styles.statValue}>{maxPower ? `${Math.round(maxPower)}` : '—'}</ThemedText>
-                <ThemedText style={styles.statLabel}>{maxPower ? 'kW max' : 'Power'}</ThemedText>
+                <ThemedText style={[styles.statLabel, { color: c.textMuted }]}>{maxPower ? 'kW max' : 'Power'}</ThemedText>
               </View>
-              <View style={styles.statCard}>
+              <View style={[styles.statCard, { backgroundColor: c.surface, borderColor: c.border }]}>
                 <ThemedText style={styles.statValue}>{totalConnectors || '—'}</ThemedText>
-                <ThemedText style={styles.statLabel}>Connectors</ThemedText>
+                <ThemedText style={[styles.statLabel, { color: c.textMuted }]}>Connectors</ThemedText>
               </View>
             </View>
 
             {activeStation.address ? (
               <View style={styles.addressRow}>
-                <ThemedText style={styles.addressText} numberOfLines={2}>
+                <ThemedText style={[styles.addressText, { color: c.textMuted }]} numberOfLines={2}>
                   {activeStation.address}
                 </ThemedText>
               </View>
@@ -254,19 +259,19 @@ export function StationBottomSheet({ stations, onClose }: Props) {
               <View style={styles.section}>
                 <ThemedText type="defaultSemiBold">Connectors</ThemedText>
                 <View style={styles.connectorList}>
-                  {connectorRows.map((c) => (
-                    <View key={c.key} style={styles.connectorRow}>
-                      <View style={[styles.connectorDot, { backgroundColor: statusDotColor(c.status) }]} />
+                  {connectorRows.map((conn) => (
+                    <View key={conn.key} style={[styles.connectorRow, { backgroundColor: c.surface, borderColor: c.border }]}>
+                      <View style={[styles.connectorDot, { backgroundColor: statusDotColor(conn.status) }]} />
                       <ThemedText type="defaultSemiBold" style={styles.connectorType}>
-                        {c.count > 1 ? `${c.count}× ` : ''}
-                        {c.type === 'unknown' ? 'Connector' : c.type}
+                        {conn.count > 1 ? `${conn.count}× ` : ''}
+                        {conn.type === 'unknown' ? 'Connector' : conn.type}
                       </ThemedText>
-                      <ThemedText style={styles.connectorPower}>{c.powerKw ? `${Math.round(c.powerKw)} kW` : ''}</ThemedText>
+                      <ThemedText style={[styles.connectorPower, { color: c.textMuted }]}>{conn.powerKw ? `${Math.round(conn.powerKw)} kW` : ''}</ThemedText>
                     </View>
                   ))}
                 </View>
                 {activeStation.pricing?.parkingFee ? (
-                  <ThemedText style={styles.feeText}>
+                  <ThemedText style={[styles.feeText, { color: c.textMuted }]}>
                     Parking/idle fee: {formatMoney(activeStation.pricing.parkingFee)} {activeStation.pricing.currency ?? 'UZS'}
                   </ThemedText>
                 ) : null}
@@ -314,7 +319,7 @@ export function StationBottomSheet({ stations, onClose }: Props) {
                     {navApps.map((app) => (
                       <Pressable
                         key={app.id}
-                        style={styles.navRow}
+                        style={[styles.navRow, { backgroundColor: c.surface, borderColor: c.border }]}
                         onPress={async () => {
                           try {
                             await app.open();
@@ -341,14 +346,14 @@ export function StationBottomSheet({ stations, onClose }: Props) {
             <ThemedText>Station details appear here.</ThemedText>
           </View>
         )}
-      </BottomSheetView>
+      </BottomSheetScrollView>
     </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
   sheetBackground: { borderTopLeftRadius: 24, borderTopRightRadius: 24 },
-  content: { flex: 1, paddingHorizontal: 16, paddingTop: 6, paddingBottom: 20 },
+  content: { flexGrow: 1, paddingHorizontal: 16, paddingTop: 6, paddingBottom: 20 },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   logoBox: {
     width: 52,
@@ -390,9 +395,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.12)',
   },
   switchChipText: { fontSize: 13 },
   smallDot: { width: 8, height: 8, borderRadius: 999 },
@@ -402,9 +405,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 16,
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.10)',
   },
   statValue: { fontSize: 20, fontWeight: '800' },
   statLabel: { fontSize: 11, opacity: 0.6, marginTop: 2 },
@@ -419,9 +420,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 11,
     borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.10)',
   },
   connectorDot: { width: 9, height: 9, borderRadius: 999 },
   connectorType: { flex: 1 },
@@ -440,9 +439,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
     borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.12)',
   },
   navRowLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   navIcon: { width: 26, height: 26, borderRadius: 7 },

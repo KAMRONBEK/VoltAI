@@ -3,6 +3,7 @@ import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { useThemeColors } from '@/lib/theme/theme-context';
 
 type Props = {
   badgeCount: number;
@@ -10,12 +11,17 @@ type Props = {
 };
 
 export function FilterFab({ badgeCount, onPress }: Props) {
+  const c = useThemeColors();
   return (
-    <Pressable onPress={onPress} style={styles.button} accessibilityRole="button">
-      <MaterialIcons name="tune" size={20} color="#ECEDEE" />
+    <Pressable
+      onPress={onPress}
+      style={[styles.button, { backgroundColor: c.chrome, borderColor: c.chromeBorder }]}
+      accessibilityRole="button"
+    >
+      <MaterialIcons name="tune" size={20} color={c.chromeIcon} />
       {badgeCount > 0 ? (
-        <View style={styles.badge}>
-          <ThemedText style={styles.badgeText}>{badgeCount}</ThemedText>
+        <View style={[styles.badge, { backgroundColor: c.tint }]}>
+          <ThemedText style={[styles.badgeText, { color: c.onAccent }]}>{badgeCount}</ThemedText>
         </View>
       ) : null}
     </Pressable>
@@ -29,9 +35,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(18, 18, 18, 0.92)',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
   badge: {
     position: 'absolute',
@@ -41,12 +45,10 @@ const styles = StyleSheet.create({
     height: 18,
     paddingHorizontal: 5,
     borderRadius: 9,
-    backgroundColor: '#2FE28A',
     alignItems: 'center',
     justifyContent: 'center',
   },
   badgeText: {
-    color: '#0b0b0b',
     fontSize: 12,
     fontWeight: '800',
     lineHeight: 14,

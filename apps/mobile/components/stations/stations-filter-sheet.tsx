@@ -1,11 +1,11 @@
-import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import BottomSheet, { BottomSheetScrollView, BottomSheetTextInput } from '@gorhom/bottom-sheet';
 import React, { useEffect, useMemo, useRef } from 'react';
-import { Pressable, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
 import { CATEGORIES } from '@/lib/categories';
+import { useThemeColors } from '@/lib/theme/theme-context';
 import type { ChargerCategory } from '@/types/stations';
 import type { StationsFilters } from '@/types/stationsFilters';
 import { DEFAULT_STATIONS_FILTERS } from '@/types/stationsFilters';
@@ -33,7 +33,8 @@ function toggleInArray(arr: string[], value: string): string[] {
 }
 
 export function StationsFilterSheet({ open, filters, options, onClose, onChange, onReset }: Props) {
-  const colorScheme = useColorScheme() ?? 'dark';
+  const c = useThemeColors();
+  const insets = useSafeAreaInsets();
   const sheetRef = useRef<BottomSheet | null>(null);
   const snapPoints = useMemo(() => [260, '75%'], []);
 
@@ -45,22 +46,24 @@ export function StationsFilterSheet({ open, filters, options, onClose, onChange,
     }
   }, [open]);
 
-  const text = Colors[colorScheme].text;
-
   return (
     <BottomSheet
       ref={sheetRef}
       index={-1}
       snapPoints={snapPoints}
       enablePanDownToClose
+      keyboardBehavior="interactive"
+      android_keyboardInputMode="adjustResize"
       onClose={onClose}
-      backgroundStyle={[styles.sheetBackground, { backgroundColor: Colors[colorScheme].background }]}
-      handleIndicatorStyle={{ backgroundColor: 'rgba(255,255,255,0.25)' }}>
-      <BottomSheetScrollView contentContainerStyle={styles.content}>
+      backgroundStyle={[styles.sheetBackground, { backgroundColor: c.background }]}
+      handleIndicatorStyle={{ backgroundColor: c.handle }}>
+      <BottomSheetScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 88 }]}
+        keyboardShouldPersistTaps="handled">
         <View style={styles.titleRow}>
           <ThemedText type="subtitle">Filters</ThemedText>
           <Pressable onPress={onReset} accessibilityRole="button">
-            <ThemedText type="defaultSemiBold" style={{ color: Colors[colorScheme].tint }}>
+            <ThemedText type="defaultSemiBold" style={{ color: c.tint }}>
               Reset
             </ThemedText>
           </Pressable>
@@ -71,6 +74,7 @@ export function StationsFilterSheet({ open, filters, options, onClose, onChange,
           <Switch
             value={filters.onlyAvailable}
             onValueChange={(v) => onChange({ ...filters, onlyAvailable: v })}
+            trackColor={{ true: c.tint }}
           />
         </View>
 
@@ -94,11 +98,11 @@ export function StationsFilterSheet({ open, filters, options, onClose, onChange,
                   style={[
                     styles.pill,
                     styles.catPill,
-                    { borderColor: isOn ? cat.color : 'rgba(255,255,255,0.12)' },
+                    { backgroundColor: c.surface, borderColor: isOn ? cat.color : c.border },
                     isOn ? { backgroundColor: `${cat.color}26` } : null,
                   ]}
                   accessibilityRole="button">
-                  <View style={[styles.catRing, { borderColor: cat.color }]} />
+                  <View style={[styles.catRing, { borderColor: cat.color, backgroundColor: c.surface }]} />
                   <ThemedText type="defaultSemiBold">{cat.label}</ThemedText>
                 </Pressable>
               );
@@ -108,7 +112,7 @@ export function StationsFilterSheet({ open, filters, options, onClose, onChange,
 
         <View style={styles.section}>
           <ThemedText type="defaultSemiBold">Min power (kW)</ThemedText>
-          <TextInput
+          <BottomSheetTextInput
             value={filters.minPowerKw === null ? '' : String(filters.minPowerKw)}
             onChangeText={(t) => {
               if (!t.trim().length) {
@@ -120,8 +124,8 @@ export function StationsFilterSheet({ open, filters, options, onClose, onChange,
             }}
             keyboardType="number-pad"
             placeholder={DEFAULT_STATIONS_FILTERS.minPowerKw === null ? 'Any' : String(DEFAULT_STATIONS_FILTERS.minPowerKw)}
-            placeholderTextColor="rgba(255,255,255,0.35)"
-            style={[styles.input, { color: text }]}
+            placeholderTextColor={c.placeholder}
+            style={[styles.input, { backgroundColor: c.inputBg, borderColor: c.border, color: c.text }]}
           />
         </View>
 
@@ -150,8 +154,8 @@ export function StationsFilterSheet({ open, filters, options, onClose, onChange,
           onToggle={(v) => onChange({ ...filters, amenities: toggleInArray(filters.amenities, v) })}
         />
 
-        <Pressable style={[styles.closeButton, { backgroundColor: Colors[colorScheme].tint }]} onPress={onClose}>
-          <ThemedText style={styles.closeText}>Apply</ThemedText>
+        <Pressable style={[styles.closeButton, { backgroundColor: c.accent }]} onPress={onClose}>
+          <ThemedText style={[styles.closeText, { color: c.onAccent }]}>Apply</ThemedText>
         </Pressable>
       </BottomSheetScrollView>
     </BottomSheet>
@@ -169,7 +173,7 @@ function PillsSection({
   selected: string[];
   onToggle: (v: string) => void;
 }) {
-  const colorScheme = useColorScheme() ?? 'dark';
+  const c = useThemeColors();
 
   if (!values.length) return null;
 
@@ -185,8 +189,9 @@ function PillsSection({
               onPress={() => onToggle(v)}
               style={[
                 styles.pill,
-                isOn ? { borderColor: `${Colors[colorScheme].tint}99` } : null,
-                isOn ? { backgroundColor: `${Colors[colorScheme].tint}1A` } : null,
+                { backgroundColor: c.surface, borderColor: c.border },
+                isOn ? { borderColor: `${c.tint}99` } : null,
+                isOn ? { backgroundColor: `${c.tint}1A` } : null,
               ]}
               accessibilityRole="button">
               <ThemedText type="defaultSemiBold">{v}</ThemedText>
@@ -227,9 +232,7 @@ const styles = StyleSheet.create({
     height: 46,
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.12)',
     paddingHorizontal: 12,
-    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   pillsRow: {
     flexDirection: 'row',
@@ -240,9 +243,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.12)',
   },
   catPill: {
     flexDirection: 'row',
@@ -255,7 +256,6 @@ const styles = StyleSheet.create({
     height: 13,
     borderRadius: 5,
     borderWidth: 3,
-    backgroundColor: '#fff',
   },
   closeButton: {
     marginTop: 8,
@@ -265,8 +265,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   closeText: {
-    color: '#0b0b0b',
     fontWeight: '800',
   },
 });
-

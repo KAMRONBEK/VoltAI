@@ -8,6 +8,8 @@ import { StationBottomSheet } from '@/components/stations/station-bottom-sheet';
 import { markerImage } from '@/lib/markerImages';
 import { StationsFilterSheet } from '@/components/stations/stations-filter-sheet';
 import { useIsOffline } from '@/hooks/use-is-offline';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useThemeColors } from '@/lib/theme/theme-context';
 import { fetchStationStatuses, listStations } from '@/lib/stations/stationsClient';
 import type { Station } from '@/types/stations';
 import { DEFAULT_STATIONS_FILTERS, type StationsFilters } from '@/types/stationsFilters';
@@ -32,6 +34,13 @@ export default function StationsMapScreen() {
   const mapRef = useRef<YandexMapViewRef | null>(null);
   const insets = useSafeAreaInsets();
   const isOffline = useIsOffline();
+  const colorScheme = useColorScheme();
+  const c = useThemeColors();
+  // Single shared baseline so the right-side FAB column and the left-side legend sit on the
+  // exact same line and clear the tab bar (insets.bottom guards the home indicator).
+  // Clear the floating tab bar (bottom: insets.bottom + 12, height 64) so the map controls
+  // and legend sit above it rather than behind it.
+  const controlsBottom = insets.bottom + 92;
 
   const [stations, setStations] = useState<Station[]>([]);
   const [filters, setFilters] = useState<StationsFilters>(DEFAULT_STATIONS_FILTERS);
@@ -278,7 +287,7 @@ export default function StationsMapScreen() {
         cameraPosition={UZBEKISTAN_CAMERA}
         animated={false}
         style={StyleSheet.absoluteFill}
-        nightMode
+        nightMode={colorScheme === 'dark'}
         showUserPosition
         // Keep the camera centre above the bottom sheet so a selected pin isn't hidden.
         mapPadding={{ bottom: insets.bottom + 120 }}
@@ -297,34 +306,38 @@ export default function StationsMapScreen() {
       <View pointerEvents="none" style={[styles.topOverlay, { top: insets.top + 10 }]}>
         <OfflineBanner visible={isOffline} />
         {isLoadingStations ? (
-          <View style={styles.pill}>
-            <ActivityIndicator />
-            <ThemedText type="defaultSemiBold">Loading stations…</ThemedText>
+          <View style={[styles.pill, { backgroundColor: c.chrome, borderColor: c.chromeBorder }]}>
+            <ActivityIndicator color={c.chromeText} />
+            <ThemedText type="defaultSemiBold" style={{ color: c.chromeText }}>
+              Loading stations…
+            </ThemedText>
           </View>
         ) : stationsApiError ? (
-          <View style={styles.pillWarning}>
-            <ThemedText type="defaultSemiBold">Stations data</ThemedText>
-            <ThemedText>{stationsApiError}</ThemedText>
+          <View style={[styles.pillWarning, { backgroundColor: c.chrome }]}>
+            <ThemedText type="defaultSemiBold" style={{ color: c.chromeText }}>
+              Stations data
+            </ThemedText>
+            <ThemedText style={{ color: c.chromeText }}>{stationsApiError}</ThemedText>
           </View>
         ) : (
           <LiveStatusPill lastSyncAt={lastSyncAt} isOffline={isOffline} />
         )}
       </View>
 
-      <View style={[styles.fabColumn, { bottom: insets.bottom + 70 }]}>
+      <View style={[styles.fabColumn, { bottom: controlsBottom }]}>
         <Pressable
           onPress={() => requestAndCenterUserLocation(mapRef)}
-          style={styles.fabButton}
+          style={[styles.fabButton, { backgroundColor: c.chrome, borderColor: c.chromeBorder }]}
           accessibilityRole="button"
           accessibilityLabel="My location">
-          <MaterialIcons name="my-location" size={20} color="#ECEDEE" />
+          <MaterialIcons name="my-location" size={20} color={c.chromeIcon} />
         </Pressable>
 
         <FilterFab badgeCount={activeFilterCount} onPress={() => setIsFilterOpen(true)} />
       </View>
 
       {!selectedStations ? (
-        <View style={[styles.legendWrap, { bottom: insets.bottom + 70 }]} pointerEvents="box-none">
+        <View style={[styles.legendWrap, { bottom: controlsBottom }]} pointerEvents="box-none">
           <MapLegend />
         </View>
       ) : null}
@@ -382,29 +395,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 14,
-    backgroundColor: 'rgba(18, 18, 18, 0.92)',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255, 255, 255, 0.10)',
   },
   pillWarning: {
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 14,
-    backgroundColor: 'rgba(18, 18, 18, 0.92)',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255, 184, 0, 0.35)',
   },
   fabColumn: {
     position: 'absolute',
-    right: 12,
-    bottom: 110,
+    // Pull the column edge in by the badge overhang so the buttons keep a 12px margin while the
+    // FilterFab's top:-6/right:-6 count badge gets room to render fully (not clipped).
+    right: 6,
     gap: 10,
     alignItems: 'flex-end',
+    paddingRight: 6,
+    paddingTop: 6,
   },
   legendWrap: {
     position: 'absolute',
     left: 12,
-    bottom: 110,
     maxWidth: 260,
   },
   fabButton: {
@@ -413,8 +425,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(18, 18, 18, 0.92)',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
 });

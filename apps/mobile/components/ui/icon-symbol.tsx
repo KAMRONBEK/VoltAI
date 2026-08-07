@@ -17,6 +17,8 @@ const MAPPING = {
   'map.fill': 'map',
   'paperplane.fill': 'send',
   'person.fill': 'person',
+  'gearshape.fill': 'settings',
+  'slider.horizontal.3': 'tune',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
 } satisfies Record<string, MaterialIconName>;
