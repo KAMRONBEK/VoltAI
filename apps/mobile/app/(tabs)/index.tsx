@@ -70,16 +70,23 @@ export default function StationsMapScreen() {
 
   // Live status refresh: poll the compact statuses feed and patch each station's overall +
   // per-connector status in place. The backend re-scrapes every ~5 min; a 60s poll keeps the
-  // marker dots current. State only changes when a status actually changed, so idle polls don't
-  // re-render the map. Best-effort — a failed poll leaves the last-known statuses on screen.
+  // marker dots current. We send back the last ETag so idle polls (the ~4 of 5 between scrapes)
+  // come back as a 0-byte 304 with no JSON to parse. State only changes when a status actually
+  // changed, so idle polls never re-render the map. Best-effort — a failed poll leaves the
+  // last-known statuses on screen.
   const STATUS_POLL_MS = 60_000;
+  const statusEtagRef = useRef<string | null>(null);
   useEffect(() => {
     if (!stations.length) return;
     let cancelled = false;
 
     async function pollStatuses() {
-      const updates = await fetchStationStatuses();
-      if (cancelled || !updates?.length) return;
+      const result = await fetchStationStatuses({ etag: statusEtagRef.current });
+      if (cancelled || !result || result.kind === 'not-modified') return;
+
+      statusEtagRef.current = result.etag;
+      const updates = result.updates;
+      if (!updates.length) return;
       const byId = new Map(updates.map((u) => [u.id, u]));
 
       setStations((prev) => {

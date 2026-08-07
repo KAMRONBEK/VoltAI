@@ -231,17 +231,40 @@ export type StationStatusUpdate = {
 };
 
 /**
- * Poll the compact status feed. Best-effort: returns null on any failure so the caller simply
- * keeps showing the last-known statuses (never blanks the map). ~24 KB gzipped, edge-cached.
+ * Result of a status poll:
+ * - `updates`: a fresh 200 response — apply `updates` and remember `etag` for next time.
+ * - `not-modified`: server returned 304 (nothing changed since `etag`) — keep current state.
+ * - `null`: the poll failed (offline/timeout) — best-effort, keep last-known statuses on screen.
+ */
+export type StationStatusPollResult =
+  | { kind: 'updates'; updates: StationStatusUpdate[]; etag: string | null }
+  | { kind: 'not-modified' };
+
+/**
+ * Poll the compact status feed. Pass the `etag` from the previous `updates` result so the server
+ * can answer `304 Not Modified` (0 bytes, no JSON to parse) between the ~5-min scrapes. ~24 KB
+ * gzipped when it does change.
  */
 export async function fetchStationStatuses(opts?: {
   url?: string;
   timeoutMs?: number;
-}): Promise<StationStatusUpdate[] | null> {
+  etag?: string | null;
+}): Promise<StationStatusPollResult | null> {
   const url = opts?.url ?? STATION_STATUSES_API_URL;
   const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const json = await fetchJson(url, timeoutMs);
+    const headers: Record<string, string> = {};
+    if (opts?.etag) headers['If-None-Match'] = opts.etag;
+
+    const res = await fetch(url, { signal: controller.signal, headers });
+
+    // Nothing changed since our last successful poll — skip parsing and re-rendering entirely.
+    if (res.status === 304) return { kind: 'not-modified' };
+    if (!res.ok) return null;
+
+    const json = (await res.json()) as unknown;
     const arr = extractStationsArray(json);
     const out: StationStatusUpdate[] = [];
     for (const item of arr) {
@@ -258,9 +281,11 @@ export async function fetchStationStatuses(opts?: {
         updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : undefined,
       });
     }
-    return out;
+    return { kind: 'updates', updates: out, etag: res.headers.get('etag') };
   } catch {
     return null;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
