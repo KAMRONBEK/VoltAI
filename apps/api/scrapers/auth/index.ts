@@ -1,3 +1,5 @@
+import * as beon from "./beon";
+import * as proTok from "./pro-tok";
 import * as tokbor from "./tokbor";
 import { getTokens } from "./tokenStore";
 
@@ -16,7 +18,9 @@ export interface AuthProvider {
 }
 
 const providers: Record<string, AuthProvider> = {
-  tokbor: { getAccessToken: tokbor.getAccessToken, refresh: tokbor.refresh }
+  tokbor: { getAccessToken: tokbor.getAccessToken, refresh: tokbor.refresh },
+  beon: { getAccessToken: beon.getAccessToken, refresh: beon.refresh },
+  "pro-tok": { getAccessToken: proTok.getAccessToken, refresh: proTok.refresh }
 };
 
 export function isAuthSource(source: string): boolean {

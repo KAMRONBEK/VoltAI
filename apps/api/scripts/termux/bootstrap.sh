@@ -22,15 +22,18 @@ pkg install -y nodejs-lts git termux-services termux-api cloudflared rclone
 echo "==> Storage access (for backups / capture bridge)"
 termux-setup-storage || true
 
-echo "==> Installing API production deps + building"
+echo "==> Installing API deps + building"
 cd "$API_DIR"
-# Never run tsc/tsx on the phone in production — build on a dev box and sync dist/. But if
-# dist/ is missing, do a one-off build here (may be slow / memory-hungry).
+# apps/api has no standalone lockfile — this is an npm workspace and the lock lives at the repo
+# root. Running `npm ci` here would pull the ENTIRE workspace (incl. the mobile app's huge
+# Expo/RN deps) or fail outright. `--no-workspaces` installs just the API's own deps from its
+# package.json. Never run tsc on the phone in production; build on a dev box and sync dist/ when
+# you can. But if dist/ is missing, do a one-off build here (slow / memory-hungry).
 if [ ! -f dist/src/index.js ]; then
-  npm ci
+  npm install --no-workspaces
   npm run build
 else
-  npm ci --omit=dev
+  npm install --no-workspaces --omit=dev
 fi
 
 mkdir -p "$HOME/voltai/data" "$HOME/voltai/backups" "$HOME/voltai/logs"

@@ -9,6 +9,8 @@ import path from "node:path";
  */
 
 export interface SourceTokens {
+  /** The phone number an OTP was requested for (some `verify` steps need it back). */
+  phoneNumber?: string;
   /** Short-lived session token returned by the "send OTP" step. */
   tempToken?: string;
   /** Long-lived tokens returned after OTP verification. */

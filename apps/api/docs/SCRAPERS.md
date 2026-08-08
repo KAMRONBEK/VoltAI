@@ -32,7 +32,9 @@ Manual run: `npm run scrape:http` (dry-run, prints counts) /
 | **Tokbor** | `uz.tokbor.tokbor` | Flutter | login-replay | ✅ ~664 named stations (1127 pins) |
 | **Spectre Energy** | `uz.spectreEnergy.uz` | Flutter | none | ✅ ~675 points → ~368 stations |
 | **K-Watt** | `org.uicgroup.kwattapp` | Flutter | none | ✅ 88 stations / 205 connectors |
-| **Megawatt** | `com.charging123.megawatt` | React Native | **required** | ⛔ blocked (captcha + attestation) |
+| **Beon** | `uz.beonapp.uz` | Flutter | login-replay | 🟡 wired — pending one-time OTP login |
+| **Pro-Tok** | `com.fintech_projects.fintech_project1` | Flutter | login-replay | 🟡 wired — auth shape + one-time OTP pending |
+| **Megawatt** | `com.charging123.megawatt` | React Native | **required** | ⛔ blocked (hardware attestation — see below) |
 
 Combined live: **~1890 raw → ~1117 canonical stations**, verified end-to-end on the
 Yandex map on-device (operator-logo markers, clustering, price/power/connectors).
@@ -80,6 +82,32 @@ login over plain HTTP with the user's own number, store the token, scrape with i
 - `status`: AVAILABLE / UNAVAILABLE / MAINTENANCE / POWEROFF / EMERGENCY_STOP.
   `type`: DC / HYBRID / AC / ULTRA.
 
+### Beon — `scrapers/apps/beon.ts` + `scrapers/auth/beon.ts` (login-replay)
+
+Flutter, base `https://api.v2.beon-app.com`. Auth-gated, **no captcha / no attestation** — same
+recipe as Tokbor.
+- Login: `POST /auth/login {phoneNumber}` → SMS OTP → `POST /auth/verify-otp {phoneNumber, otp}` →
+  bearer. Endpoints confirmed live; the exact success-body shape is read on the first login
+  (`pickToken` scans common shapes).
+- Stations: `GET /map` (bearer). Unauth → `403 AUTHORIZATION_MISSING`. `parseBeon` is defensive
+  (array / `{data}` / GeoJSON) — finalize connector/status/price mapping after the first response.
+- **Activate:** `npm run auth:beon -- send "+998…"` → `-- verify <code>` → then the cron scrapes it.
+- **Open question:** token longevity (Tokbor's was ~365 d; Beon's is unverified — confirm on first
+  login; if short-lived, `refresh()` tries the common shapes, else re-run the OTP login).
+
+### Pro-Tok — `scrapers/apps/pro-tok.ts` + `scrapers/auth/pro-tok.ts` (login-replay, shape TBD)
+
+Flutter, base `https://crm.protok.uz/api`. Auth-gated.
+- Stations: `GET /Connector/List` (bearer). Unauth → `401`. `parseProTok` groups a flat connector
+  list into stations by station id / shared coordinates.
+- Login endpoint **names** are extracted (`/Sms/SendComfirmCode`, `/Sms/CheckComfirmCode`,
+  `/Authorize`) but the request **param shape is unconfirmed** — the CRM serves an SPA for unknown
+  routes, so it couldn't be probed blind. The auth module posts best-guess bodies and **prints the
+  response keys** on failure so the first real `send`/`verify` reveals the true shape; tighten the
+  params then.
+- **Activate:** `npm run auth:pro-tok -- send "+998…"` → read the printed keys, fix params if
+  needed → `-- verify <code>`.
+
 ## Blocked (auth-gated) — endpoint known, login not automatable
 
 ### Megawatt — `com.charging123.megawatt` (React Native, ecofactor/charging123 platform)
@@ -88,12 +116,19 @@ login over plain HTTP with the user's own number, store the token, scrape with i
   (all `/api/*` variants 401). `/client/charge-box` (no `/api`) is a PWA route that
   returns the SPA HTML, not data.
 - Login flow (SMS OTP): `POST /api/client/send-code` → `POST /api/client/auth`.
-- **Why blocked:** `send-code` requires a **puzzle-slider captcha**
-  (`generatePuzzleCaptcha` / `captchaResults` in the RN bundle) **plus hardware
-  attestation** (`x-app-attest-key-id`, `HardwareAttestationSignature`). The
-  attestation binds the request to the physical device's hardware key, so login
-  can't be replayed off-device. Would need on-device Frida (root) or an official
-  operator API key.
+- **Why blocked (deep finding — do not re-litigate):** TLS is *not* the problem (no cert pinning,
+  no `network_security_config.xml`, so a **system**-CA would intercept). The wall is **hardware
+  attestation** via a custom Expo module `ExpoAppIntegrity` (Kotlin, `classes5.dex`): Android
+  Keystore hardware key attestation (`x-app-attest-key-id`, cert chain to Google's hardware root)
+  **+** Play Integrity, with a per-request `x-app-attest-assertion` + `x-app-attest-timestamp`
+  signature (high-confidence: the **data GET itself is signed**, so a replayed off-device bearer
+  won't work). The contradiction that kills every route: **you cannot both read the TLS and pass
+  attestation** — rooting/emulating to install a CA or inject Frida flips `verifiedBootState` in
+  the TEE-signed attestation cert, which the server sees and rejects; a stock locked device passes
+  attestation but gives you no way to read the traffic. Keybox spoofing (TrickyStore) is being
+  killed by Google's 2026 RKP root rotation. **Realistic success ≈ 0%, worsening over time.** Only
+  an official operator API key would open this. (Weak fallback: Appium screen-scrape of the live
+  logged-in app — no bulk coordinate list, not a real data source.)
 
 ## Reusing an existing on-device login is not possible (no root)
 
@@ -103,6 +138,6 @@ debuggable** (so `adb run-as` fails), they don't print the token to logcat, and
 mitm is blocked by pinning. Hence login-replay (fresh token) rather than token
 extraction.
 
-## Not on the capture device
-`pro-tok` and `beon` configs exist but those apps were not installed on the phone,
-so their endpoints are undiscovered. `beon` appears in older seed data.
+## pro-tok & beon — now discovered
+Their APKs were pulled off apkcombo (Flutter, both auth-gated) and wired as login-replay sources
+(see the Beon / Pro-Tok sections above). They just need a one-time OTP login to go live.
