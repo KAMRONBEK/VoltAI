@@ -82,14 +82,48 @@ function scheduleScrape(): void {
     console.log("[scrape] disabled (SCRAPE_ENABLED=false)");
     return;
   }
-  // Every 5 minutes by default — one poll of each operator API refreshes live charger
-  // statuses, then the canonical table is rebuilt. Override with SCRAPE_CRON.
-  const expression = process.env.SCRAPE_CRON ?? "*/5 * * * *";
+
+  // Anti-fingerprinting: a perfectly periodic poll from one account is trivial for an operator
+  // API to flag. Instead of a fixed cron, self-reschedule with a random gap in [MIN, MAX] minutes
+  // AFTER each scrape COMPLETES — so runs never overlap and never settle into a detectable rhythm.
+  const parseMinutes = (raw: string | undefined): number | null => {
+    if (raw === undefined) {
+      return null;
+    }
+    const value = Number.parseFloat(raw);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  };
+
+  let minMinutes = parseMinutes(process.env.SCRAPE_MIN_MINUTES);
+  let maxMinutes = parseMinutes(process.env.SCRAPE_MAX_MINUTES);
+  if (minMinutes === null || maxMinutes === null || maxMinutes < minMinutes) {
+    minMinutes = 3;
+    maxMinutes = 5;
+  }
+
   // eslint-disable-next-line no-console
-  console.log(`[scrape] scheduled (${expression})`);
-  cron.schedule(expression, () => {
-    void refresh("cron");
-  });
+  console.log(`[scrape] scheduled (randomized ${minMinutes}-${maxMinutes} min between runs)`);
+
+  // A single in-flight timer at any moment; the flag blocks accidental double-scheduling.
+  let scheduled = false;
+  const scheduleNext = (): void => {
+    if (scheduled) {
+      return;
+    }
+    scheduled = true;
+    const delayMs = (minMinutes! + Math.random() * (maxMinutes! - minMinutes!)) * 60_000;
+    // eslint-disable-next-line no-console
+    console.log(`[scrape] next in ${Math.round(delayMs / 1000)}s`);
+    setTimeout(() => {
+      scheduled = false;
+      // Reschedule in finally so a thrown/rejected refresh can never kill the scheduler.
+      void refresh("interval")
+        .catch(() => undefined)
+        .finally(scheduleNext);
+    }, delayMs);
+  };
+
+  scheduleNext();
 }
 
 /** Rebuild the canonical `stations` table from raw captures on a schedule. */
