@@ -67,7 +67,7 @@ export function LiveStatusPill({ lastSyncAt, isOffline }: Props) {
   }, [isOffline, lastSyncAt, live, ageSec]);
 
   return (
-    <View style={[styles.pill, { backgroundColor: c.chrome, borderColor: c.chromeBorder }]}>
+    <View style={[styles.pill, { backgroundColor: c.chrome, borderColor: c.chromeBorder, boxShadow: c.chromeShadow }]}>
       <Animated.View style={[styles.dot, { backgroundColor: color, opacity: pulse }]} />
       <ThemedText style={[styles.text, { color: c.chromeText }]}>{label}</ThemedText>
     </View>

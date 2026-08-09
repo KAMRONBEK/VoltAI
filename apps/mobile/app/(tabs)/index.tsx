@@ -251,10 +251,13 @@ export default function StationsMapScreen() {
     return stationGroups.find((g) => g.id === selectedGroupId)?.stations ?? null;
   }, [selectedGroupId, stationGroups]);
 
+  // Markers depend ONLY on stationGroups — NOT on selectedGroupId. Selecting a pin used to be in
+  // this memo's deps, so every tap regenerated all ~1000 marker elements and stalled the JS thread
+  // (which is what made the bottom sheet open late/never). Selection highlight is drawn as a single
+  // separate overlay marker below, so a tap only adds/moves one element instead of rebuilding all.
   const markers = useMemo(
     () =>
       stationGroups.map((group) => {
-        const isSelected = group.id === selectedGroupId;
         const primary = group.stations[0];
         // One status per connector/charger across all stations at this exact spot → the
         // marker image shows a colored dot per charger + the operator logo.
@@ -267,8 +270,8 @@ export default function StationsMapScreen() {
             onPress={(e) => setSelectedGroupId(e.nativeEvent.identifier ?? group.id)}
             // Image is 148x176 with the logo centred at y≈58 → anchor on the logo.
             anchor={{ x: 0.5, y: 0.33 }}
-            scale={isSelected ? 0.92 : 0.72}
-            zIndex={isSelected ? 10 : 1}
+            scale={0.72}
+            zIndex={1}
             source={markerImage(
               primary?.operatorId,
               primary?.category,
@@ -277,8 +280,34 @@ export default function StationsMapScreen() {
           />
         );
       }),
-    [selectedGroupId, stationGroups]
+    [stationGroups]
   );
+
+  // The selected pin, enlarged, drawn on top — recomputing just this one element on selection keeps
+  // the highlight without touching the memoized `markers` array (so taps stay snappy).
+  const selectedMarker = useMemo(() => {
+    if (!selectedGroupId) return null;
+    const group = stationGroups.find((g) => g.id === selectedGroupId);
+    if (!group) return null;
+    const primary = group.stations[0];
+    const statuses = group.stations.flatMap((s) => s.connectors.map((c) => c.status));
+    return (
+      <Marker
+        key={`selected-${group.id}`}
+        point={group.location}
+        identifier={group.id}
+        onPress={(e) => setSelectedGroupId(e.nativeEvent.identifier ?? group.id)}
+        anchor={{ x: 0.5, y: 0.33 }}
+        scale={0.92}
+        zIndex={10}
+        source={markerImage(
+          primary?.operatorId,
+          primary?.category,
+          statuses.length ? statuses : [primary?.status ?? 'unknown']
+        )}
+      />
+    );
+  }, [selectedGroupId, stationGroups]);
 
   return (
     <ThemedView style={styles.container}>
@@ -300,6 +329,7 @@ export default function StationsMapScreen() {
           clusterRadius={50}
           minZoom={14}>
           {markers}
+          {selectedMarker}
         </Clusterer>
       </YandexMapView>
 
@@ -327,7 +357,7 @@ export default function StationsMapScreen() {
       <View style={[styles.fabColumn, { bottom: controlsBottom }]}>
         <Pressable
           onPress={() => requestAndCenterUserLocation(mapRef)}
-          style={[styles.fabButton, { backgroundColor: c.chrome, borderColor: c.chromeBorder }]}
+          style={[styles.fabButton, { backgroundColor: c.chrome, borderColor: c.chromeBorder, boxShadow: c.chromeShadow }]}
           accessibilityRole="button"
           accessibilityLabel="My location">
           <MaterialIcons name="my-location" size={20} color={c.chromeIcon} />

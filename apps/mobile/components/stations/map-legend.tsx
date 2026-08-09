@@ -21,7 +21,7 @@ export function MapLegend() {
   if (!open) {
     return (
       <Pressable
-        style={[styles.fab, { backgroundColor: c.chrome, borderColor: c.chromeBorder }]}
+        style={[styles.fab, { backgroundColor: c.chrome, borderColor: c.chromeBorder, boxShadow: c.chromeShadow }]}
         onPress={() => setOpen(true)}
         accessibilityLabel="Map legend"
       >
@@ -33,7 +33,7 @@ export function MapLegend() {
 
   return (
     <Pressable
-      style={[styles.card, { backgroundColor: c.chrome, borderColor: c.chromeBorder }]}
+      style={[styles.card, { backgroundColor: c.chrome, borderColor: c.chromeBorder, boxShadow: c.chromeShadow }]}
       onPress={() => setOpen(false)}
     >
       <ThemedText style={[styles.heading, { color: c.chromeText }]}>Ring = charger type</ThemedText>

@@ -15,7 +15,7 @@ export function FilterFab({ badgeCount, onPress }: Props) {
   return (
     <Pressable
       onPress={onPress}
-      style={[styles.button, { backgroundColor: c.chrome, borderColor: c.chromeBorder }]}
+      style={[styles.button, { backgroundColor: c.chrome, borderColor: c.chromeBorder, boxShadow: c.chromeShadow }]}
       accessibilityRole="button"
     >
       <MaterialIcons name="tune" size={20} color={c.chromeIcon} />

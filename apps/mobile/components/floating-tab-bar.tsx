@@ -5,7 +5,6 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useThemeColors } from '@/lib/theme/theme-context';
 
 // Route name → SF Symbol / Material icon (see components/ui/icon-symbol).
@@ -21,7 +20,6 @@ const ICONS: Record<string, React.ComponentProps<typeof IconSymbol>['name']> = {
  */
 export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const c = useThemeColors();
-  const scheme = useColorScheme();
   const insets = useSafeAreaInsets();
 
   return (
@@ -32,7 +30,7 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
           {
             backgroundColor: c.tabBar,
             borderColor: c.border,
-            shadowOpacity: scheme === 'dark' ? 0.45 : 0.16,
+            boxShadow: c.chromeShadow,
           },
         ]}>
         {state.routes.map((route, index) => {
@@ -88,10 +86,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     borderRadius: 28,
     borderWidth: StyleSheet.hairlineWidth,
-    elevation: 12,
-    shadowColor: '#000',
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
   },
   item: {
     alignItems: 'center',

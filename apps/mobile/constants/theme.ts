@@ -65,6 +65,9 @@ export type ThemeColors = {
   chromeText: string;
   /** Icon color on map-overlay chrome. */
   chromeIcon: string;
+  /** Drop shadow for floating map chrome — a dark shadow on light, a lighter glow on dark, so
+   * FABs/pills lift off the map in both themes. A CSS-style `boxShadow` string (RN new arch). */
+  chromeShadow: string;
 
   /** Bottom-sheet drag handle. */
   handle: string;
@@ -107,6 +110,8 @@ export const Colors: { light: ThemeColors; dark: ThemeColors } = {
     chromeBorder: 'rgba(11,21,18,0.10)',
     chromeText: '#0B1512',
     chromeIcon: '#0B1512',
+    // Light theme → a real, darker drop shadow against the bright map.
+    chromeShadow: '0px 6px 16px rgba(11,21,18,0.20)',
 
     handle: 'rgba(11,21,18,0.22)',
     inputBg: '#EDF0EE',
@@ -143,6 +148,8 @@ export const Colors: { light: ThemeColors; dark: ThemeColors } = {
     chromeBorder: 'rgba(255,255,255,0.12)',
     chromeText: '#ECEDEE',
     chromeIcon: '#ECEDEE',
+    // Dark theme → a dark shadow is invisible on the dark map, so use a lighter glow to lift chrome.
+    chromeShadow: '0px 4px 18px rgba(0,0,0,0.55), 0px 0px 10px rgba(255,255,255,0.08)',
 
     handle: 'rgba(255,255,255,0.25)',
     inputBg: 'rgba(255,255,255,0.06)',
