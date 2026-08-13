@@ -1,0 +1,121 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoltAI — Privacy Policy</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1a1d1c;
+    --muted: #5b6360;
+    --accent: #1AA63F;
+    --card: #f4f6f5;
+    --border: #e2e6e4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 17px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  main {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 40px 22px 72px;
+  }
+  header {
+    border-bottom: 3px solid var(--accent);
+    padding-bottom: 18px;
+    margin-bottom: 26px;
+  }
+  h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  h2 {
+    font-size: 20px;
+    margin: 34px 0 10px;
+    padding-top: 6px;
+    letter-spacing: -0.01em;
+  }
+  p, li { color: var(--fg); }
+  .meta { color: var(--muted); font-size: 15px; margin: 2px 0; }
+  .lead { font-size: 18px; }
+  ul { padding-left: 22px; }
+  li { margin: 6px 0; }
+  a { color: var(--accent); }
+  .callout {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin: 20px 0;
+  }
+  .callout p { margin: 6px 0; }
+  strong { font-weight: 650; }
+  footer {
+    margin-top: 44px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0B0F0D;
+      --fg: #eef2f0;
+      --muted: #9aa39f;
+      --card: #141a17;
+      --border: #263029;
+    }
+  }
+</style>
+
+<main>
+  <header>
+    <h1>VoltAI Privacy Policy</h1>
+    <p class="meta">Effective date: PLACEHOLDER</p>
+    <p class="meta">Applies to the VoltAI mobile app (iOS and Android), bundle identifier <code>uz.voltai.app</code>.</p>
+  </header>
+
+  <p class="lead">VoltAI is a map of electric-vehicle (EV) charging stations for Uzbekistan. It shows you where chargers are, which connector types and power levels they offer, and whether they are currently available. This policy explains, in plain language, exactly what the app does and does not do with information.</p>
+
+  <p><strong>The short version:</strong> VoltAI has no user accounts and asks you to sign in to nothing. It does not collect, upload, sell, or share your personal information. The app uses your device location only while the app is open, only to show nearby chargers and estimate distance, and that location is never sent to our servers or anyone else. Anything you configure in the app stays on your phone.</p>
+
+  <h2>Information we use</h2>
+  <ul>
+    <li><strong>Location (foreground only).</strong> With your permission, VoltAI reads your device's location <em>while you are actively using the app</em> ("When In Use"). It is used on the device to center the map near you, show which chargers are closest, and estimate distance. VoltAI does not access your location in the background, does not track your movements, and does not transmit your location to our servers or to third parties. You can decline or revoke this permission at any time in your device settings; the map still works, you just won't see your position or distance estimates.</li>
+    <li><strong>Your preferences and optional vehicle details.</strong> Settings you choose (such as theme, filters, and any optional vehicle make, model, or range you enter to help judge which chargers suit your car) are saved <em>only on your device</em> using local on-device storage (AsyncStorage). This information is not associated with any account or identifier and is never uploaded.</li>
+  </ul>
+
+  <h2>Information we do NOT collect</h2>
+  <ul>
+    <li><strong>No accounts.</strong> There is no registration, login, email, phone number, or password. We cannot identify you because we never ask who you are.</li>
+    <li><strong>No analytics or tracking.</strong> VoltAI includes no analytics SDKs, no advertising, and no third-party tracking or profiling tools. We do not build a profile of you or follow you across apps or websites.</li>
+    <li><strong>No advertising identifiers</strong> and no cross-app tracking.</li>
+    <li><strong>No sale or sharing of personal data.</strong> We do not sell, rent, or share your personal information with anyone, because we do not collect it in the first place.</li>
+  </ul>
+
+  <h2>How station data is sourced</h2>
+  <p>The charging-station locations, connector and power details, and live availability shown in VoltAI are aggregated from multiple EV charging operators active in Uzbekistan and presented together on one map. This is information <em>about public charging infrastructure</em> — where stations are and whether a plug is free — not information about you. When the app displays availability, your device requests station data from VoltAI's backend service over a standard encrypted (HTTPS) connection. These requests carry no personal identifiers.</p>
+
+  <h2>On-device storage and retention</h2>
+  <p>Because there are no accounts and no server-side user records, the only data VoltAI retains about you lives on your own device. It stays there until you clear it. You can remove it at any time by clearing the app's data or by uninstalling the app, which deletes all locally stored preferences and vehicle details. We hold no personal data to delete on our side.</p>
+
+  <h2>Children's privacy</h2>
+  <p>VoltAI is intended for a general audience and is not directed to children. The app does not knowingly collect personal information from anyone, including children. Because no personal information is collected or transmitted, the app poses no data-collection risk to younger users.</p>
+
+  <h2>Security</h2>
+  <p>Network requests between the app and the station-data service use standard encrypted transport (HTTPS/TLS). Since VoltAI does not collect personal data or operate user accounts, there is no personal database that could be exposed in a breach. Information stored on your device is protected by your device's own operating-system protections.</p>
+
+  <h2>Changes to this policy</h2>
+  <p>We may update this policy to reflect changes in the app or in legal requirements. When we do, we will revise the "Effective date" above and post the updated version at the same URL. Significant changes will be reflected in the app's release notes. Continued use of the app after an update means you accept the revised policy.</p>
+
+  <h2>Contact</h2>
+  <p>If you have questions about this policy or the app's handling of information, contact us at:</p>
+  <div class="callout">
+    <p><strong>PLACEHOLDER: support/privacy email address</strong> (e.g. privacy@voltai.uz)</p>
+    <p class="meta">PLACEHOLDER: legal entity or developer name and mailing address, if required by your store account type or local law.</p>
+  </div>
+
+  <footer>
+    <p>&copy; PLACEHOLDER YEAR VoltAI. This document is provided for the VoltAI mobile application and describes the app's actual data practices as of the effective date above.</p>
+  </footer>
+</main>
