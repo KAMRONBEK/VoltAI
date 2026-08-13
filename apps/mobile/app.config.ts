@@ -23,6 +23,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         ...(baseExpo.ios?.infoPlist ?? {}),
         NSLocationWhenInUseUsageDescription:
           'VoltAI uses your location to show nearby EV chargers and estimate distance.',
+        // No custom/non-standard crypto — declaring this skips the export-compliance prompt on
+        // every App Store submission (the app only uses standard HTTPS/TLS).
+        ITSAppUsesNonExemptEncryption: false,
       },
     },
     android: {
@@ -51,6 +54,18 @@ export default ({ config }: ConfigContext): ExpoConfig => {
           flavor: 'lite',
           locationWhenInUsePermission:
             'VoltAI uses your location to show nearby EV chargers and estimate distance.',
+        },
+      ],
+      // Allow cleartext HTTP so release builds can reach the on-device backend at
+      // http://127.0.0.1:8080. Debug builds already permit cleartext; release does not by
+      // default. The production/store profile targets https://api.voltai.uz, so this only
+      // affects the on-device (dev/preview) builds that talk to the phone's Termux API.
+      [
+        'expo-build-properties',
+        {
+          android: {
+            usesCleartextTraffic: true,
+          },
         },
       ],
     ],

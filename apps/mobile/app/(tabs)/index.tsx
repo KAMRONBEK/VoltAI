@@ -1,6 +1,8 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { TAB_BAR_CLEARANCE } from '@/components/floating-tab-bar';
 import { OfflineBanner } from '@/components/offline-banner';
+import { ChromePill } from '@/components/ui/chrome-pill';
 import { FilterFab } from '@/components/stations/filter-fab';
 import { LiveStatusPill } from '@/components/stations/live-status-pill';
 import { MapLegend } from '@/components/stations/map-legend';
@@ -37,10 +39,8 @@ export default function StationsMapScreen() {
   const colorScheme = useColorScheme();
   const c = useThemeColors();
   // Single shared baseline so the right-side FAB column and the left-side legend sit on the
-  // exact same line and clear the tab bar (insets.bottom guards the home indicator).
-  // Clear the floating tab bar (bottom: insets.bottom + 12, height 64) so the map controls
-  // and legend sit above it rather than behind it.
-  const controlsBottom = insets.bottom + 92;
+  // exact same line and clear the floating tab bar (insets.bottom guards the home indicator).
+  const controlsBottom = insets.bottom + TAB_BAR_CLEARANCE;
 
   const [stations, setStations] = useState<Station[]>([]);
   const [filters, setFilters] = useState<StationsFilters>(DEFAULT_STATIONS_FILTERS);
@@ -268,6 +268,10 @@ export default function StationsMapScreen() {
             point={group.location}
             identifier={group.id}
             onPress={(e) => setSelectedGroupId(e.nativeEvent.identifier ?? group.id)}
+            // Consume the tap. `handled` defaults to false, which lets a marker press ALSO reach
+            // the map's `onMapPress` — and that clears the selection, so tapping a charger opened
+            // the sheet and closed it in the same gesture, i.e. did nothing at all.
+            handled
             // Image is 148x176 with the logo centred at y≈58 → anchor on the logo.
             anchor={{ x: 0.5, y: 0.33 }}
             scale={0.72}
@@ -297,6 +301,7 @@ export default function StationsMapScreen() {
         point={group.location}
         identifier={group.id}
         onPress={(e) => setSelectedGroupId(e.nativeEvent.identifier ?? group.id)}
+        handled
         anchor={{ x: 0.5, y: 0.33 }}
         scale={0.92}
         zIndex={10}
@@ -322,8 +327,8 @@ export default function StationsMapScreen() {
         mapPadding={{ bottom: insets.bottom + 120 }}
         onMapPress={() => setSelectedGroupId(null)}>
         <Clusterer
-          clusterColor="#22E06B"
-          clusterTextColor="#07120B"
+          clusterColor={c.tint}
+          clusterTextColor={c.onAccent}
           clusterSize={46}
           clusterTextSize={13}
           clusterRadius={50}
@@ -336,19 +341,19 @@ export default function StationsMapScreen() {
       <View pointerEvents="none" style={[styles.topOverlay, { top: insets.top + 10 }]}>
         <OfflineBanner visible={isOffline} />
         {isLoadingStations ? (
-          <View style={[styles.pill, { backgroundColor: c.chrome, borderColor: c.chromeBorder }]}>
+          <ChromePill>
             <ActivityIndicator color={c.chromeText} />
             <ThemedText type="defaultSemiBold" style={{ color: c.chromeText }}>
               Loading stations…
             </ThemedText>
-          </View>
+          </ChromePill>
         ) : stationsApiError ? (
-          <View style={[styles.pillWarning, { backgroundColor: c.chrome }]}>
+          <ChromePill tone="warn" style={styles.pillStack}>
             <ThemedText type="defaultSemiBold" style={{ color: c.chromeText }}>
               Stations data
             </ThemedText>
             <ThemedText style={{ color: c.chromeText }}>{stationsApiError}</ThemedText>
-          </View>
+          </ChromePill>
         ) : (
           <LiveStatusPill lastSyncAt={lastSyncAt} isOffline={isOffline} />
         )}
@@ -413,7 +418,6 @@ const styles = StyleSheet.create({
   },
   topOverlay: {
     position: 'absolute',
-    top: 12,
     left: 12,
     right: 12,
     gap: 8,
@@ -427,13 +431,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  pillWarning: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255, 184, 0, 0.35)',
-  },
+  /** The warning variant stacks its two lines instead of sitting them side by side. */
+  pillStack: { flexDirection: 'column', alignItems: 'flex-start', gap: 2 },
   fabColumn: {
     position: 'absolute',
     // Pull the column edge in by the badge overhang so the buttons keep a 12px margin while the

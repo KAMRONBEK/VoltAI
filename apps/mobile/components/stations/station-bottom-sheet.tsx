@@ -4,7 +4,9 @@ import { ActivityIndicator, Image, Pressable, StyleSheet, View } from 'react-nat
 import { getApps } from 'react-native-map-link';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { TAB_BAR_CLEARANCE } from '@/components/floating-tab-bar';
 import { ThemedText } from '@/components/themed-text';
+import { StatusDot } from '@/components/ui/status-dot';
 import { categoryInfo } from '@/lib/categories';
 import { operatorFor } from '@/lib/operators';
 import { useThemeColors } from '@/lib/theme/theme-context';
@@ -14,8 +16,6 @@ type Props = {
   stations: Station[] | null;
   onClose: () => void;
 };
-
-const BRAND = '#22E06B';
 
 function formatStatus(status: Station['status']): string {
   switch (status) {
@@ -27,19 +27,6 @@ function formatStatus(status: Station['status']): string {
       return 'Offline';
     default:
       return 'Unknown';
-  }
-}
-
-function statusDotColor(status: Station['status']): string {
-  switch (status) {
-    case 'available':
-      return '#2FE28A';
-    case 'in_use':
-      return '#F7B84B';
-    case 'offline':
-      return '#6D6D6D';
-    default:
-      return '#9BA1A6';
   }
 }
 
@@ -156,7 +143,7 @@ export function StationBottomSheet({ stations, onClose }: Props) {
       backgroundStyle={[styles.sheetBackground, { backgroundColor: c.background }]}
       handleIndicatorStyle={{ backgroundColor: c.handle }}>
       <BottomSheetScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 88 }]}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + TAB_BAR_CLEARANCE }]}
         showsVerticalScrollIndicator={false}>
         {activeStation && op ? (
           <>
@@ -166,8 +153,8 @@ export function StationBottomSheet({ stations, onClose }: Props) {
                 {op.logo ? (
                   <Image source={op.logo} style={styles.logoImg} resizeMode="contain" />
                 ) : (
-                  <View style={[styles.logoFallback, { backgroundColor: op.color }]}>
-                    <ThemedText style={styles.logoFallbackText}>{op.name.slice(0, 1)}</ThemedText>
+                  <View style={[styles.logoFallback, { backgroundColor: `${op.color}22`, borderColor: op.color }]}>
+                    <ThemedText style={[styles.logoFallbackText, { color: op.color }]}>{op.name.slice(0, 1)}</ThemedText>
                   </View>
                 )}
               </View>
@@ -181,7 +168,7 @@ export function StationBottomSheet({ stations, onClose }: Props) {
                     {op.name}
                   </ThemedText>
                   <View style={styles.statusChip}>
-                    <View style={[styles.statusDot, { backgroundColor: statusDotColor(activeStation.status) }]} />
+                    <StatusDot status={activeStation.status} />
                     <ThemedText style={styles.statusChipText}>{formatStatus(activeStation.status)}</ThemedText>
                   </View>
                 </View>
@@ -213,10 +200,10 @@ export function StationBottomSheet({ stations, onClose }: Props) {
                       style={[
                         styles.switchChip,
                         { backgroundColor: c.surface, borderColor: c.border },
-                        isOn ? { borderColor: `${BRAND}99`, backgroundColor: `${BRAND}1A` } : null,
+                        isOn ? { borderColor: c.tint, backgroundColor: `${c.tint}1A` } : null,
                       ]}
                       accessibilityRole="button">
-                      <View style={[styles.smallDot, { backgroundColor: statusDotColor(s.status) }]} />
+                      <StatusDot status={s.status} />
                       <ThemedText type="defaultSemiBold" numberOfLines={1} style={styles.switchChipText}>
                         {operatorFor(s.operatorId).name}
                       </ThemedText>
@@ -261,7 +248,7 @@ export function StationBottomSheet({ stations, onClose }: Props) {
                 <View style={styles.connectorList}>
                   {connectorRows.map((conn) => (
                     <View key={conn.key} style={[styles.connectorRow, { backgroundColor: c.surface, borderColor: c.border }]}>
-                      <View style={[styles.connectorDot, { backgroundColor: statusDotColor(conn.status) }]} />
+                      <StatusDot status={conn.status} />
                       <ThemedText type="defaultSemiBold" style={styles.connectorType}>
                         {conn.count > 1 ? `${conn.count}× ` : ''}
                         {conn.type === 'unknown' ? 'Connector' : conn.type}
@@ -281,7 +268,7 @@ export function StationBottomSheet({ stations, onClose }: Props) {
             {/* Navigate */}
             <View style={styles.actionsRow}>
               <Pressable
-                style={[styles.actionPrimary, { backgroundColor: BRAND }]}
+                style={[styles.actionPrimary, { backgroundColor: c.accent }]}
                 onPress={async () => {
                   const next = !showNavApps;
                   setShowNavApps(next);
@@ -291,7 +278,7 @@ export function StationBottomSheet({ stations, onClose }: Props) {
                   }
                 }}
                 accessibilityRole="button">
-                <ThemedText style={styles.actionPrimaryText}>
+                <ThemedText style={[styles.actionPrimaryText, { color: c.onAccent }]}>
                   {showNavApps ? 'Hide navigation apps' : 'Navigate'}
                 </ThemedText>
               </Pressable>
@@ -332,7 +319,7 @@ export function StationBottomSheet({ stations, onClose }: Props) {
                           <Image source={app.icon as never} style={styles.navIcon} />
                           <ThemedText type="defaultSemiBold">{app.name}</ThemedText>
                         </View>
-                        <ThemedText style={{ color: BRAND }}>Open</ThemedText>
+                        <ThemedText style={{ color: c.tint }}>Open</ThemedText>
                       </Pressable>
                     ))}
                   </View>
@@ -366,14 +353,20 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   logoImg: { width: 46, height: 46, borderRadius: 12 },
-  logoFallback: { width: 46, height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  logoFallbackText: { color: '#fff', fontWeight: '800', fontSize: 20 },
+  logoFallback: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoFallbackText: { fontWeight: '800', fontSize: 20 },
   titleWrap: { flex: 1, gap: 4 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   operatorText: { fontWeight: '700', fontSize: 13 },
   statusChip: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  statusChipText: { fontSize: 13, opacity: 0.9 },
-  statusDot: { width: 9, height: 9, borderRadius: 999 },
+  statusChipText: { fontSize: 13 },
   catChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -398,7 +391,6 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   switchChipText: { fontSize: 13 },
-  smallDot: { width: 8, height: 8, borderRadius: 999 },
   statsRow: { marginTop: 16, flexDirection: 'row', gap: 10 },
   statCard: {
     flex: 1,
@@ -408,9 +400,9 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   statValue: { fontSize: 20, fontWeight: '800' },
-  statLabel: { fontSize: 11, opacity: 0.6, marginTop: 2 },
+  statLabel: { fontSize: 11, marginTop: 2 },
   addressRow: { marginTop: 14 },
-  addressText: { opacity: 0.85, lineHeight: 20 },
+  addressText: { lineHeight: 20 },
   section: { marginTop: 18, gap: 10 },
   connectorList: { gap: 8 },
   connectorRow: {
@@ -422,13 +414,12 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  connectorDot: { width: 9, height: 9, borderRadius: 999 },
   connectorType: { flex: 1 },
-  connectorPower: { opacity: 0.7 },
-  feeText: { marginTop: 4, opacity: 0.6, fontSize: 13 },
+  connectorPower: {},
+  feeText: { marginTop: 4, fontSize: 13 },
   actionsRow: { marginTop: 18 },
-  actionPrimary: { alignItems: 'center', justifyContent: 'center', height: 50, borderRadius: 15 },
-  actionPrimaryText: { color: '#07120B', fontWeight: '800', fontSize: 15 },
+  actionPrimary: { alignItems: 'center', justifyContent: 'center', height: 50, borderRadius: 14 },
+  actionPrimaryText: { fontWeight: '800', fontSize: 16 },
   navSection: { marginTop: 16, gap: 10 },
   navState: { gap: 8, paddingVertical: 6 },
   navList: { gap: 10 },

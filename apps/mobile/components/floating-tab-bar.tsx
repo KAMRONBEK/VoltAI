@@ -10,13 +10,24 @@ import { useThemeColors } from '@/lib/theme/theme-context';
 // Route name → SF Symbol / Material icon (see components/ui/icon-symbol).
 const ICONS: Record<string, React.ComponentProps<typeof IconSymbol>['name']> = {
   index: 'map.fill',
+  route: 'arrow.triangle.branch',
   explore: 'gearshape.fill',
 };
 
 /**
+ * Bottom padding a tab screen needs so its last row clears the floating pill.
+ *
+ * The pill sits at `insets.bottom + 16` and is 56 tall, so its top edge is at `insets.bottom + 72`;
+ * this leaves 24 px of air above it. Exported because it was previously copied as three different
+ * numbers into five screens, which is why the gap above the pill changed as you moved around.
+ * Screens NOT under the tab bar — the garage, the planner's pushed screens — must not use it.
+ */
+export const TAB_BAR_CLEARANCE = 96;
+
+/**
  * Compact, floating, icon-only pill tab bar. Rendered via the Tabs `tabBar` prop so we control
- * the exact size: an absolutely-positioned wrapper centers a row that only spans its two icons
- * (not the full width). Screens render underneath — each adds its own bottom clearance.
+ * the exact size: an absolutely-positioned wrapper centers a row that only spans its icons
+ * (not the full width). Screens render underneath — each adds `TAB_BAR_CLEARANCE`.
  */
 export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const c = useThemeColors();

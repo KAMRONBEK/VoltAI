@@ -14,14 +14,34 @@ import { Platform } from 'react-native';
 
 // Brand palette
 const brandGreenDark = '#0B3D2E';
+/**
+ * The light scheme's *interactive* green, distinct from `brandGreenDark`.
+ *
+ * `tint` and `accent` used to be the same near-black green in light mode, which meant a link, a
+ * "Reset" and a piece of bold body text were the same colour — nothing text-based looked
+ * tappable. This sits at 5.3:1 on white and 4.8:1 on the app background, and still carries white
+ * text at 5.3:1 when used as a fill, so it works as both ink and paint.
+ */
+const brandGreenMid = '#0F7A4A';
 const brandGreenNeon = '#2FE28A';
 const brandRed = '#E53935';
 
-// Charger status — shared across both schemes to match the marker images.
+// Charger status — shared across both schemes to match the marker images. These values are not
+// free: `scripts/gen-markers.cjs` bakes them into the marker PNGs, so a dot rendered from a token
+// and a dot rendered from a pin must agree. It folds unknown into the offline grey, and so do we.
 const statusAvailable = '#2FE28A';
 const statusInUse = '#F7B84B';
-const statusOffline = '#6D6D6D';
-const statusUnknown = '#9BA1A6';
+const statusOffline = '#8A9099';
+const statusUnknown = '#8A9099';
+
+/**
+ * Ink for things drawn *on the map* rather than on a surface.
+ *
+ * Map tiles do not follow the app's theme the way a card does — the route's start and end pins
+ * have to read against Yandex's own light and dark tiles, so they are fixed rather than tokenized,
+ * in the same spirit as the status colours above.
+ */
+export const MapInk = { ink: '#0B1512', paper: '#FFFFFF' } as const;
 
 export type ThemeColors = {
   /** Page background (shows behind sheets, settings, the map). */
@@ -76,13 +96,38 @@ export type ThemeColors = {
   /** Placeholder text color. */
   placeholder: string;
 
+  /** Something is wrong and blocks the user: a trip the car cannot make, a required field. */
   danger: string;
+  /**
+   * Caution: correct behaviour under a stated limitation — an estimated route, a relaxed filter,
+   * a saved plan. Deliberately a separate token from `statusInUse`, which happens to be the same
+   * amber today but means one specific thing: a charger is occupied.
+   */
+  warning: string;
   /** Charger status dots. */
   statusAvailable: string;
   statusInUse: string;
   statusOffline: string;
   statusUnknown: string;
 };
+
+/** Charger status → its dot colour, so the four call sites cannot drift apart again. */
+export function statusColor(
+  status: 'available' | 'in_use' | 'busy' | 'offline' | 'unknown' | null | undefined,
+  c: ThemeColors
+): string {
+  switch (status) {
+    case 'available':
+      return c.statusAvailable;
+    case 'in_use':
+    case 'busy':
+      return c.statusInUse;
+    case 'offline':
+      return c.statusOffline;
+    default:
+      return c.statusUnknown;
+  }
+}
 
 export const Colors: { light: ThemeColors; dark: ThemeColors } = {
   light: {
@@ -98,12 +143,14 @@ export const Colors: { light: ThemeColors; dark: ThemeColors } = {
     border: 'rgba(11,21,18,0.10)',
     borderStrong: 'rgba(11,21,18,0.18)',
 
-    tint: brandGreenDark,
+    // tint = the interactive green (links, icons, selected states, the route line);
+    // accent = the filled-CTA green. They differ only in the light scheme.
+    tint: brandGreenMid,
     accent: brandGreenDark,
     onAccent: '#FFFFFF',
 
     tabIconDefault: '#8A938E',
-    tabIconSelected: brandGreenDark,
+    tabIconSelected: brandGreenMid,
     tabBar: '#FFFFFF',
 
     chrome: 'rgba(255,255,255,0.94)',
@@ -118,6 +165,7 @@ export const Colors: { light: ThemeColors; dark: ThemeColors } = {
     placeholder: 'rgba(11,21,18,0.35)',
 
     danger: brandRed,
+    warning: statusInUse,
     statusAvailable,
     statusInUse,
     statusOffline,
@@ -156,6 +204,7 @@ export const Colors: { light: ThemeColors; dark: ThemeColors } = {
     placeholder: 'rgba(255,255,255,0.35)',
 
     danger: brandRed,
+    warning: statusInUse,
     statusAvailable,
     statusInUse,
     statusOffline,

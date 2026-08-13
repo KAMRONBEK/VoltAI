@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { Pressable, StyleSheet, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { TAB_BAR_CLEARANCE } from '@/components/floating-tab-bar';
 import { ThemedText } from '@/components/themed-text';
 import { CATEGORIES } from '@/lib/categories';
 import { useThemeColors } from '@/lib/theme/theme-context';
@@ -58,7 +59,7 @@ export function StationsFilterSheet({ open, filters, options, onClose, onChange,
       backgroundStyle={[styles.sheetBackground, { backgroundColor: c.background }]}
       handleIndicatorStyle={{ backgroundColor: c.handle }}>
       <BottomSheetScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 88 }]}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + TAB_BAR_CLEARANCE }]}
         keyboardShouldPersistTaps="handled">
         <View style={styles.titleRow}>
           <ThemedText type="subtitle">Filters</ThemedText>
@@ -252,14 +253,14 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
   catRing: {
-    width: 13,
-    height: 13,
+    width: 14,
+    height: 14,
     borderRadius: 5,
     borderWidth: 3,
   },
   closeButton: {
     marginTop: 8,
-    height: 48,
+    height: 50,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',

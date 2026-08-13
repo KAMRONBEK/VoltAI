@@ -21,6 +21,7 @@ const MAPPING = {
   'slider.horizontal.3': 'tune',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
+  'arrow.triangle.branch': 'alt-route',
 } satisfies Record<string, MaterialIconName>;
 
 type IconSymbolName = keyof typeof MAPPING;

@@ -3,14 +3,16 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
 import { ThemedText } from '@/components/themed-text';
+import { StatusDot } from '@/components/ui/status-dot';
 import { CATEGORIES } from '@/lib/categories';
+import type { Station } from '@/types/stations';
 import { useThemeColors } from '@/lib/theme/theme-context';
 
 const ITEMS = [CATEGORIES.ultra, CATEGORIES.dc, CATEGORIES.hybrid, CATEGORIES.ac];
-const STATUS = [
-  { c: '#2FE28A', l: 'Free' },
-  { c: '#F7B84B', l: 'In use' },
-  { c: '#8A9099', l: 'Offline' },
+const STATUS: { status: Station['status']; label: string }[] = [
+  { status: 'available', label: 'Free' },
+  { status: 'in_use', label: 'In use' },
+  { status: 'offline', label: 'Offline' },
 ];
 
 /** Collapsible map legend: the ring color = charger category, the dots = each charger's status. */
@@ -50,9 +52,9 @@ export function MapLegend() {
       </ThemedText>
       <View style={styles.row}>
         {STATUS.map((s) => (
-          <View key={s.l} style={styles.item}>
-            <View style={[styles.dot, { backgroundColor: s.c }]} />
-            <ThemedText style={[styles.label, { color: c.chromeText }]}>{s.l}</ThemedText>
+          <View key={s.label} style={styles.item}>
+            <StatusDot status={s.status} />
+            <ThemedText style={[styles.label, { color: c.chromeText }]}>{s.label}</ThemedText>
           </View>
         ))}
       </View>
@@ -78,11 +80,10 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     gap: 8,
   },
-  heading: { fontSize: 11, fontWeight: '800', opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.5 },
+  heading: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
   heading2: { marginTop: 4 },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   item: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   ring: { width: 14, height: 14, borderRadius: 5, borderWidth: 3 },
-  dot: { width: 10, height: 10, borderRadius: 999 },
   label: { fontSize: 12, fontWeight: '600' },
 });
