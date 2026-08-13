@@ -7,7 +7,7 @@
     "dev": "tsx src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/index.js",
-    "lint": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit && tsx scripts/merge-check.ts && tsx scripts/plan-check.ts",
     "scrape:app": "tsx scrapers/run-app-scraper.ts",
     "scrape:http": "tsx scrapers/http/run.ts",
     "enrich:tokbor": "tsx scrapers/http/enrich-tokbor.ts",
@@ -18,7 +18,10 @@
     "scrape:google": "tsx scrapers/maps/google.ts",
     "merge": "tsx scrapers/merge.ts",
     "gate:pull": "bash scripts/gate/pull-apks.sh",
-    "gate:screen": "tsx scripts/gate/screen-apk.ts"
+    "gate:screen": "tsx scripts/gate/screen-apk.ts",
+    "plan:check": "tsx scripts/plan-check.ts",
+    "merge:check": "tsx scripts/merge-check.ts",
+    "backfill:pergun": "tsx scripts/backfill-pergun.ts"
   },
   "private": true,
   "keywords": [],

@@ -2,6 +2,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
 import stationsRouter from "./routes/stations";
+import planRouter from "./routes/plan";
 import ingestRouter from "./routes/ingest";
 import { connectDatabase } from "./db/sqlite";
 import { countStations } from "./repositories/stationRepo";
@@ -76,6 +77,10 @@ app.get("/api/health/detail", (_req, res) => {
 });
 
 app.use("/api/stations", stationsRouter);
+
+// Route planning. Read-only and cacheable like /api/stations; must stay ahead of the error
+// middleware below.
+app.use("/api/plan", planRouter);
 
 // Loopback-only in production (must not be exposed through the tunnel); token-guarded.
 app.use("/ingest", ingestRouter);

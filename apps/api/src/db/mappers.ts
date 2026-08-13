@@ -11,9 +11,13 @@ type ChargerCategory = "ac" | "dc" | "ultra" | "hybrid";
 
 type WireConnector = {
   type: string;
+  /** Per-gun, not per-site — see services/perGunPower.ts. */
   power?: number;
   status?: string;
   category?: ChargerCategory;
+  siteMaxKw?: number;
+  sharedCabinet?: boolean;
+  powerBasis?: "name" | "site-single" | "site-alternative" | "site-shared" | "unknown";
   count?: number;
   pricePerKwh?: number;
   parkingFee?: number;

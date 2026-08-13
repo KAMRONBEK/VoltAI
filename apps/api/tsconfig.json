@@ -15,6 +15,7 @@
     "src/**/*.ts",
     "api/**/*.ts",
     "scrapers/**/*.ts",
+    "scripts/**/*.ts",
     "apps.json"
   ],
   "exclude": [

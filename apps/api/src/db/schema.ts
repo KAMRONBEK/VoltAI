@@ -59,4 +59,18 @@ CREATE VIRTUAL TABLE IF NOT EXISTS stations_fts USING fts5(
 );
 
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
+
+-- Road geometry from the third-party router, keyed by origin/destination quantized to 3 dp
+-- (~111 m). Roads change on a timescale of years and the provider's rate limits are undocumented,
+-- so this is a long-lived cache, not a short one: a repeat of any previously planned trip — and
+-- every back-navigation and retry — costs zero routing calls.
+-- The provider's own ETA is deliberately NOT stored: it implies ~25 km/h on intercity legs and is
+-- non-deterministic across identical queries, so drive time is modelled from distance instead.
+CREATE TABLE IF NOT EXISTS route_cache (
+  k          TEXT PRIMARY KEY,
+  provider   TEXT NOT NULL,
+  distance_m REAL NOT NULL,
+  polyline   TEXT NOT NULL,
+  fetched_at TEXT NOT NULL
+);
 `;

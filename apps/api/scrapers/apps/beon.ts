@@ -1,5 +1,6 @@
 import type { AppScraperConfig } from "./base";
 import type { ChargerCategory, Connector, RawStationInput } from "../../src/types/station";
+import { derivePerGunPower } from "../../src/services/perGunPower";
 
 /**
  * Beon (uz.beonapp.uz) — Flutter, base api.v2.beon-app.com.
@@ -49,12 +50,32 @@ function parseBeon(payload: unknown): RawStationInput[] {
 
     const total = Math.max(1, Number(site.maxConnectorsCount) || 1);
     const free = Math.max(0, Math.min(total, Number(site.freeConnectorsCount) || 0));
-    const connectors: Connector[] = Array.from({ length: total }, (_unused, i) => ({
-      type: "unknown",
-      power,
-      status: i < free ? "available" : "unavailable",
-      category
-    }));
+
+    // `maxCapacity` is a site rating, so copying it onto every gun overstates what one car draws
+    // at a multi-gun site. Beon names carry no per-gun breakdown, so this resolves to a shared
+    // cabinet — full power alone, split when a sibling is drawing.
+    const gunPowers = derivePerGunPower({
+      name,
+      siteKw: power,
+      plugs: Array.from({ length: total }, () => "unknown")
+    });
+
+    const connectors: Connector[] = Array.from({ length: total }, (_unused, i) => {
+      const gun = gunPowers[i] ?? gunPowers[gunPowers.length - 1];
+      return {
+        type: "unknown",
+        power: gun?.kw ?? undefined,
+        // NOTE: Beon reports only a site-level free COUNT, so which specific guns are free is
+        // unknown — this assigns freeness positionally, which is a fabrication. It survives only
+        // because Beon connectors are type "unknown" and therefore never routable; do not rely on
+        // per-gun status here.
+        status: i < free ? "available" : "unavailable",
+        category,
+        siteMaxKw: gun?.siteMaxKw ?? undefined,
+        sharedCabinet: gun?.sharedCabinet || undefined,
+        powerBasis: gun?.basis
+      };
+    });
 
     stations.push({
       source: "beon",

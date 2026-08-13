@@ -1,6 +1,7 @@
 import type { AppScraperConfig } from "./base";
 import type { ChargerCategory, Connector, RawStationInput } from "../../src/types/station";
 import { getTokborDetail } from "./tokborDetailCache";
+import { derivePerGunPower } from "../../src/services/perGunPower";
 
 /**
  * Tokbor (uz.tokbor.tokbor) — Flutter app, base api.newtokbor.uz.
@@ -93,15 +94,32 @@ function parseTokbor(payload: unknown): RawStationInput[] {
     // the list only has the coarse DC/HYBRID/AC/ULTRA category.
     const plugs = detail?.plugs?.length ? detail.plugs : undefined;
     const count = plugs?.length ?? (detail?.connectorCount && detail.connectorCount > 0 ? detail.connectorCount : 1);
-    const connectors: Connector[] = Array.from({ length: count }, (_unused, i) => ({
-      type: plugLabel(plugs?.[i]) ?? (typeof row.type === "string" ? row.type : "unknown"),
-      power: detail?.capacity,
-      status,
-      category,
-      pricePerKwh: detail?.electricityFee,
-      parkingFee: detail?.idleFee,
-      currency: detail?.electricityFee != null ? "UZS" : undefined
-    }));
+
+    // `detail.capacity` is a SITE rating. Copying it onto every gun made a "60+100kW" site report
+    // 160 kW on both guns — a 2.7x overestimate on the 60 kW one, on exactly the quantity the
+    // route planner minimizes. derivePerGunPower reads the operator's own name for the per-gun
+    // breakdown and otherwise flags the cabinet as shared.
+    const gunPowers = derivePerGunPower({
+      name: detail?.name,
+      siteKw: detail?.capacity,
+      plugs: Array.from({ length: count }, (_unused, i) => plugs?.[i])
+    });
+
+    const connectors: Connector[] = Array.from({ length: count }, (_unused, i) => {
+      const gun = gunPowers[i] ?? gunPowers[gunPowers.length - 1];
+      return {
+        type: plugLabel(plugs?.[i]) ?? (typeof row.type === "string" ? row.type : "unknown"),
+        power: gun?.kw ?? undefined,
+        status,
+        category,
+        siteMaxKw: gun?.siteMaxKw ?? undefined,
+        sharedCabinet: gun?.sharedCabinet || undefined,
+        powerBasis: gun?.basis,
+        pricePerKwh: detail?.electricityFee,
+        parkingFee: detail?.idleFee,
+        currency: detail?.electricityFee != null ? "UZS" : undefined
+      };
+    });
 
     stations.push({
       source: "tokbor",

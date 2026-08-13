@@ -60,9 +60,19 @@ export function applyCache(
   }
 
   const ifNoneMatch = req.headers["if-none-match"];
-  if (typeof ifNoneMatch === "string" && ifNoneMatch.split(",").some((t) => t.trim() === etag)) {
-    res.status(304).end();
-    return true;
+  if (typeof ifNoneMatch === "string") {
+    // Exact match first. If-None-Match is a comma-separated list, but an ETag's opaque part may
+    // itself contain a comma — splitting first would shred such a tag and silently never 304,
+    // turning every conditional request into a full recomputation on a phone-sized origin.
+    const trimmed = ifNoneMatch.trim();
+    const matched =
+      trimmed === etag ||
+      trimmed === "*" ||
+      trimmed.split(",").some((candidate) => candidate.trim() === etag);
+    if (matched) {
+      res.status(304).end();
+      return true;
+    }
   }
 
   const ifModifiedSince = req.headers["if-modified-since"];
