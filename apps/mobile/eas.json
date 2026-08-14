@@ -17,7 +17,7 @@
       "android": { "buildType": "apk" },
       "ios": { "simulator": false },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "http://127.0.0.1:8080"
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.voltai.uz"
       }
     },
     "production": {
