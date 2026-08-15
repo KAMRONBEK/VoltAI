@@ -1,10 +1,12 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import { useAtomValue } from 'jotai';
 import React from 'react';
 import {
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -32,6 +34,11 @@ const APPEARANCE_OPTIONS: { value: ThemePreference; label: string }[] = [
 ];
 
 const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
+const PRIVACY_POLICY_URL = 'https://voltai.uz/uz/privacy';
+
+function openPrivacyPolicy() {
+  WebBrowser.openBrowserAsync(PRIVACY_POLICY_URL).catch(() => Linking.openURL(PRIVACY_POLICY_URL).catch(() => {}));
+}
 
 /** A titled, rounded card grouping — uppercase heading over a surface card. */
 
@@ -100,11 +107,28 @@ export default function SettingsScreen() {
             ) : null}
           </Section>
 
-          {/* About — account-free, on-device. */}
+          {/* Privacy — said the way it actually works, planner included. */}
+          <Section title="Privacy">
+            <ThemedText style={[styles.aboutBody, { color: c.textMuted }]}>
+              VoltAI is account-free. Your preferences and cars are stored on this device. When you
+              plan a trip, only the start and end coordinates and the car figures needed to compute
+              the route are sent to VoltAI’s server (and forwarded to a routing provider) — never an
+              identity, and nothing is kept about you. No analytics, no ads, no tracking.
+            </ThemedText>
+            <Pressable
+              onPress={openPrivacyPolicy}
+              style={[styles.linkRow, { borderColor: c.border }]}
+              accessibilityRole="link">
+              <ThemedText style={[styles.linkLabel, { color: c.text }]}>Privacy Policy</ThemedText>
+              <MaterialIcons name="open-in-new" size={20} color={c.textMuted} />
+            </Pressable>
+          </Section>
+
+          {/* About */}
           <Section title="About">
             <ThemedText style={[styles.aboutBody, { color: c.textMuted }]}>
-              VoltAI is account-free. Your preferences and vehicle stay on this device — no sign-in,
-              no cloud.
+              Not affiliated with any charging operator. Station data comes from operators’ public
+              apps and may be delayed or incomplete — check the charger before you rely on it.
             </ThemedText>
             <ThemedText style={[styles.aboutVersion, { color: c.textMuted }]}>
               Version {APP_VERSION}

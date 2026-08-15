@@ -7,24 +7,17 @@ import { setMeta } from "../repositories/metaRepo";
  * Ingestion side door for pushing station payloads in from OFF-device scrapers. It was written for
  * the on-device capture bridge, which was abandoned (Flutter + cert pinning — docs/SCRAPERS.md);
  * the phone now feeds itself from the in-process HTTP scrapers, and the only caller left in the
- * repo is `npm run scrape:http -- --ingest` (scrapers/http/run.ts:43-55), run from a dev box.
+ * repo is `npm run scrape:http -- --ingest` (scrapers/http/run.ts), run from a dev box.
  * A client POSTs `{ source, payload }` (or `{ source, payloads }`) here; we run the source's
- * existing `parseResponse` (the same code the old Appium flow used) and upsert RawStations.
+ * existing `parseResponse` and upsert RawStations.
  *
- * SECURITY — what is actually true today (verified 2026-08-15):
- * This router is mounted on the SINGLE public Express app (src/app.ts:86), served by the one
- * listener src/index.ts:13 opens on PORT — the same port cloudflared fronts. There is no separate
- * loopback-only listener, and INGEST_PORT is read by no code. The token check below is therefore
- * the FIRST and ONLY application-layer defence (it does at least fail closed when INGEST_TOKEN is
- * unset). The only other protection is the cloudflared ingress rule
- * `path: ^/ingest -> http_status:404` in scripts/cloudflared/config.example.yml — which is a
- * CASE-SENSITIVE regex, while Express routing is case-INSENSITIVE, so `POST /INGEST` slips past
- * the rule and reaches this router.
- *
- * Hardening still missing: (1) bind a second Express app to 127.0.0.1 and move /ingest onto it
- * (or at minimum `app.listen(port, "127.0.0.1")` — today Node binds 0.0.0.0, so anything on the
- * phone's LAN can POST here directly, bypassing cloudflared entirely); (2) make the ingress rule
- * case-insensitive, e.g. `path: (?i)^/ingest`; (3) rate-limit this route.
+ * SECURITY (2026-08-16): three independent layers, all in code —
+ *  1. the API binds 127.0.0.1 unless HOST is set (src/index.ts), so the phone's LAN cannot reach it;
+ *  2. src/app.ts refuses any /ingest request that did not arrive from loopback OR that carries the
+ *     Cloudflare `cf-connecting-ip`/`cf-ray` headers (i.e. came through the tunnel) with a 404 —
+ *     regardless of the cloudflared ingress rule, and case-insensitively (Express routing);
+ *  3. this router's shared-secret check (fails closed when INGEST_TOKEN is unset).
+ * The JSON body parser is mounted only on this path.
  */
 const router = Router();
 

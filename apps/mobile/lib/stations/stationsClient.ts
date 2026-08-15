@@ -1,16 +1,24 @@
+import { API_BASE_URL } from '@/lib/apiBaseUrl';
 import { getJson, setJson } from '@/lib/storage/jsonStorage';
 import { StorageKeys } from '@/lib/storage/storageKeys';
-import type { Station, StationsListResult, StationStatus } from '@/types/stations';
+import type { Station, StationsErrorKind, StationsListResult, StationStatus } from '@/types/stations';
 
-// Base URL is overridable via EXPO_PUBLIC_API_BASE_URL for local/staging dev (e.g. pointing
-// at a locally-run API through `adb reverse`); defaults to production.
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? 'https://api.voltai.uz';
 export const STATIONS_API_URL = `${API_BASE_URL}/api/stations`;
 // Compact near-real-time status feed (id + overall + per-connector status). Polled on the map
 // so charger dots reflect the backend's ~5-min status refresh without re-downloading the catalog.
 export const STATION_STATUSES_API_URL = `${API_BASE_URL}/api/stations/statuses`;
 
 const DEFAULT_TIMEOUT_MS = 6_000;
+
+/**
+ * Cache policy for the last-known-good catalog.
+ * - Past `CACHE_STATUSES_TRUSTED_MS`, cached charger statuses are downgraded to `unknown`: a dot
+ *   that said "available" three hours ago is a claim we can no longer stand behind.
+ * - Past `CACHE_MAX_AGE_MS`, the cache is treated as absent — stations move and operators change,
+ *   and pins from a fortnight ago are worse than an honest empty map.
+ */
+export const CACHE_STATUSES_TRUSTED_MS = 30 * 60_000;
+export const CACHE_MAX_AGE_MS = 14 * 24 * 60 * 60_000;
 
 type StationsCache = {
   updatedAt: number;
@@ -50,10 +58,22 @@ function geoJsonPointToLatLng(value: unknown): { latitude: number; longitude: nu
 
 function toStatus(value: unknown): StationStatus {
   if (value === 'available' || value === 'in_use' || value === 'offline' || value === 'unknown') return value;
-  // Common variants we might get from APIs.
-  if (value === 'in-use' || value === 'busy') return 'in_use';
-  if (value === 'down') return 'offline';
-  return 'unknown';
+  // Variants the backend passes through from the operators (K-Watt, Tokbor, Spectre) as-is.
+  switch (value) {
+    case 'unavailable':
+    case 'occupied':
+    case 'charging':
+    case 'busy':
+    case 'in-use':
+      return 'in_use';
+    case 'maintenance':
+    case 'poweroff':
+    case 'faulted':
+    case 'down':
+      return 'offline';
+    default:
+      return 'unknown';
+  }
 }
 
 function extractStationsArray(payload: unknown): unknown[] {
@@ -182,38 +202,84 @@ function buildPageUrl(baseUrl: string, page?: number, limit?: number): string {
   return u.toString();
 }
 
+/** A non-2xx answer. Kept apart from network/timeout failures so the UI can name the difference. */
+class HttpError extends Error {
+  readonly status: number;
+  constructor(status: number) {
+    super(`Stations API HTTP ${status}`);
+    this.status = status;
+  }
+}
+
 async function fetchJson(url: string, timeoutMs: number): Promise<unknown> {
   const res = await fetchWithTimeout(url, timeoutMs);
-  if (!res.ok) {
-    throw new Error(`Stations API HTTP ${res.status}`);
-  }
+  if (!res.ok) throw new HttpError(res.status);
   return (await res.json()) as unknown;
 }
 
-// The map needs EVERY station, but the API paginates (default 50, max 200 per page).
-// Walk all pages until we've collected `total` (bounded so a misbehaving API can't loop forever).
-const PAGE_SIZE = 200;
-const MAX_PAGES = 100;
+// The map needs EVERY station, but the API paginates (default 50, max 1000 per page). Walk the
+// pages until one comes back short (bounded so a misbehaving API can't loop forever). Items are
+// keyed by id so a station that shifts across a page boundary between two requests (the backend
+// re-merges every ~5 min) is not drawn twice.
+const PAGE_SIZE = 1000;
+const MAX_PAGES = 20;
 
-async function fetchAllRawStations(baseUrl: string, timeoutMs: number): Promise<unknown[]> {
-  const all: unknown[] = [];
+type RawCatalog = {
+  items: unknown[];
+  /** The API's `total`, from the first page — 0 means the backend has no stations at all. */
+  total: number | null;
+  /** When the backend last merged its sources — the age of every status in this payload. */
+  lastMergeAt: string | null;
+};
+
+async function fetchAllRawStations(baseUrl: string, timeoutMs: number): Promise<RawCatalog> {
+  const byId = new Map<string, unknown>();
+  let total: number | null = null;
+  let lastMergeAt: string | null = null;
   for (let page = 1; page <= MAX_PAGES; page += 1) {
     const json = await fetchJson(buildPageUrl(baseUrl, page, PAGE_SIZE), timeoutMs);
     const items = extractStationsArray(json);
-    all.push(...items);
+    if (page === 1 && isRecord(json)) {
+      total = toNumber(json.total);
+      lastMergeAt = typeof json.lastMergeAt === 'string' ? json.lastMergeAt : null;
+    }
+    items.forEach((item, i) => {
+      const id = isRecord(item) ? (item.id ?? item._id) : undefined;
+      // An item with no id can't be deduped; key it by position so it is at least kept.
+      const key = typeof id === 'string' || typeof id === 'number' ? String(id) : `${page}:${i}`;
+      byId.set(key, item);
+    });
 
-    const total = isRecord(json) ? toNumber(json.total) : null;
-    if (items.length === 0) break; // no more data
-    if (total !== null && all.length >= total) break; // got everything
-    if (items.length < PAGE_SIZE) break; // last (short) page
+    if (items.length < PAGE_SIZE) break; // last (short or empty) page
+    if (total !== null && byId.size >= total) break; // got everything
   }
-  return all;
+  return { items: Array.from(byId.values()), total, lastMergeAt };
 }
 
-async function loadCachedStations(): Promise<Station[] | null> {
+/** The last-known-good catalog, or null when there is none or it is too old to trust at all. */
+async function loadCachedStations(): Promise<StationsCache | null> {
   const cached = await getJson<StationsCache>(StorageKeys.stationsCache);
   if (!cached?.stations?.length) return null;
-  return cached.stations;
+  const updatedAt = toNumber(cached.updatedAt) ?? 0;
+  if (Date.now() - updatedAt > CACHE_MAX_AGE_MS) return null;
+  return { updatedAt, stations: cached.stations };
+}
+
+/**
+ * Serve the cache as a `StationsListResult`. Past the trust window every status is downgraded to
+ * `unknown` — the pins stay (a charger's location does not go stale in an afternoon), the claim
+ * that a plug is free right now does not.
+ */
+function cachedResult(cache: StationsCache, apiError: string, errorKind: StationsErrorKind): StationsListResult {
+  const statusesTrusted = Date.now() - cache.updatedAt <= CACHE_STATUSES_TRUSTED_MS;
+  const stations = statusesTrusted
+    ? cache.stations
+    : cache.stations.map((s) => ({
+        ...s,
+        status: 'unknown' as const,
+        connectors: s.connectors.map((c) => ({ ...c, status: 'unknown' as const })),
+      }));
+  return { stations, source: 'cache', apiError, errorKind, cachedAt: cache.updatedAt, statusesTrusted };
 }
 
 async function saveCachedStations(stations: Station[]): Promise<void> {
@@ -230,13 +296,26 @@ export type StationStatusUpdate = {
 };
 
 /**
+ * How old the statuses in a poll are, as the backend reports it. `lastMergeAt` is when the sources
+ * were last merged — the true age of every dot on the map — and `stale` is the backend's own
+ * verdict (its scrape loop has fallen more than ~15 min behind). Only present on a 200: a 304
+ * means "unchanged since your ETag", so the caller keeps the last freshness it saw and lets the
+ * age grow from there.
+ */
+export type StatusFreshness = {
+  lastMergeAt: string | null;
+  ageSec: number | null;
+  stale: boolean;
+};
+
+/**
  * Result of a status poll:
  * - `updates`: a fresh 200 response — apply `updates` and remember `etag` for next time.
  * - `not-modified`: server returned 304 (nothing changed since `etag`) — keep current state.
  * - `null`: the poll failed (offline/timeout) — best-effort, keep last-known statuses on screen.
  */
 export type StationStatusPollResult =
-  | { kind: 'updates'; updates: StationStatusUpdate[]; etag: string | null }
+  | { kind: 'updates'; updates: StationStatusUpdate[]; etag: string | null; freshness: StatusFreshness }
   | { kind: 'not-modified' };
 
 /**
@@ -280,7 +359,14 @@ export async function fetchStationStatuses(opts?: {
         updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : undefined,
       });
     }
-    return { kind: 'updates', updates: out, etag: res.headers.get('etag') };
+    const freshness: StatusFreshness = isRecord(json)
+      ? {
+          lastMergeAt: typeof json.lastMergeAt === 'string' ? json.lastMergeAt : null,
+          ageSec: toNumber(json.ageSec),
+          stale: json.stale === true,
+        }
+      : { lastMergeAt: null, ageSec: null, stale: false };
+    return { kind: 'updates', updates: out, etag: res.headers.get('etag'), freshness };
   } catch {
     return null;
   } finally {
@@ -301,46 +387,48 @@ export async function listStations(opts?: {
   try {
     // Default (map) mode fetches every page so all operators' stations show.
     // An explicit `page` opt still fetches just that single page (backward compat).
-    const array = explicitPage
-      ? extractStationsArray(await fetchJson(buildPageUrl(baseUrl, opts?.page, opts?.limit), timeoutMs))
+    const catalog: RawCatalog = explicitPage
+      ? {
+          items: extractStationsArray(await fetchJson(buildPageUrl(baseUrl, opts?.page, opts?.limit), timeoutMs)),
+          total: null,
+          lastMergeAt: null,
+        }
       : await fetchAllRawStations(baseUrl, timeoutMs);
-    const stations = array.map(normalizeStation).filter((s): s is Station => s !== null);
+    const stations = catalog.items.map(normalizeStation).filter((s): s is Station => s !== null);
 
-    // If we can’t parse anything sensible, fall back to last-known-good cache.
-    // With no cache we show an empty map + error state — never fabricated stations.
     if (stations.length === 0) {
       const cached = await loadCachedStations();
-      if (cached?.length) {
-        return {
-          stations: cached,
-          source: 'cache',
-          apiError: 'Stations API responded, but payload was not recognized. Using cached data.',
-        };
+      // The API answered and genuinely has nothing — a fresh backend, or a merge that wiped the
+      // table. Distinct from "unrecognized payload" so the map keeps retrying rather than giving up.
+      if (catalog.total === 0 || catalog.items.length === 0) {
+        const message = 'The charger database is empty right now — retrying…';
+        if (cached) return cachedResult(cached, message, 'empty');
+        return { stations: [], source: 'error', apiError: message, errorKind: 'empty' };
       }
-      return {
-        stations: [],
-        source: 'error',
-        apiError: 'Could not load stations right now. Pull to retry.',
-      };
+      // Items came back but none we could parse — fall back to last-known-good cache.
+      // With no cache we show an empty map + error state — never fabricated stations.
+      const message = 'The server answered in a format this app does not understand.';
+      if (cached) return cachedResult(cached, `${message} Showing saved stations.`, 'unrecognized');
+      return { stations: [], source: 'error', apiError: message, errorKind: 'unrecognized' };
     }
 
     // Cache last known good data for offline mode.
     saveCachedStations(stations).catch(() => {});
 
-    return { stations, source: 'api' };
+    return { stations, source: 'api', total: catalog.total, lastMergeAt: catalog.lastMergeAt };
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to load stations.';
+    // Name the failure: a 5xx, a timeout and a dead network each need different advice.
+    const { message, errorKind } =
+      err instanceof HttpError
+        ? { message: `Server error (HTTP ${err.status}).`, errorKind: 'http' as const }
+        : err instanceof Error && err.name === 'AbortError'
+          ? { message: 'Server not reachable (timed out).', errorKind: 'timeout' as const }
+          : { message: 'Server not reachable. Check your connection.', errorKind: 'network' as const };
 
     const cached = await loadCachedStations();
-    if (cached?.length) {
-      return { stations: cached, source: 'cache', apiError: `Offline: ${message}` };
-    }
+    if (cached) return cachedResult(cached, `${message} Showing saved stations.`, errorKind);
 
-    return {
-      stations: [],
-      source: 'error',
-      apiError: 'Offline — no stations cached yet. Check your connection and pull to retry.',
-    };
+    return { stations: [], source: 'error', apiError: message, errorKind };
   }
 }
 

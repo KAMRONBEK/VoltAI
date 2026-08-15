@@ -6,6 +6,10 @@ export const StorageKeys = {
   appSettings: 'voltai.appSettings.v1',
   /** Index of saved trips. The plans themselves live under `planBodyKey()`. */
   planIndex: 'voltai.plans.v1',
+  /** Last good `GET /api/client-config` body — used when the fetch at launch fails. */
+  clientConfig: 'voltai.clientConfig.v1',
+  /** Hash of the last server `message` the user has already been shown. */
+  clientMessageSeen: 'voltai.clientMessageSeen.v1',
 } as const;
 
 /**

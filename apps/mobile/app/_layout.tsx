@@ -11,13 +11,18 @@ import { useEffect } from 'react';
 import 'react-native-reanimated';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import { ClientConfigGate } from '@/components/client-config-gate';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useHydratePlanHistory } from '@/lib/plan/plan-history-atoms';
-import { ThemeProvider } from '@/lib/theme/theme-context';
+import { ThemeProvider, useTheme } from '@/lib/theme/theme-context';
 import { useHydrateGarage } from '@/lib/vehicles/garage-atoms';
 
-// Keep the native splash up until the app's first frame is mounted (hidden in ThemedRoot below).
+// Keep the native splash up until the persisted theme has loaded (hidden in ThemedRoot below), so
+// a user who chose dark does not get one light frame before their choice is read back from disk.
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
+
+/** Storage that never answers must not leave the splash up forever. */
+const SPLASH_SAFETY_MS = 2_000;
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -52,28 +57,38 @@ export default function RootLayout() {
 // the user's light/dark/system choice. Must live below <ThemeProvider>.
 function ThemedRoot() {
   const colorScheme = useColorScheme();
+  const { isLoaded: themeLoaded } = useTheme();
 
-  // No in-app animated splash — hide the native splash as soon as the first frame is mounted,
-  // so the app goes straight from the native splash into the UI.
+  // No in-app animated splash — hide the native splash once the saved theme is applied, so the
+  // first frame is already in the user's scheme. The timeout is the fail-safe: if AsyncStorage
+  // never answers, the app still shows up (in the OS scheme) rather than sitting on the splash.
   useEffect(() => {
-    SplashScreen.hideAsync().catch(() => undefined);
-  }, []);
+    if (themeLoaded) {
+      SplashScreen.hideAsync().catch(() => undefined);
+      return;
+    }
+    const safety = setTimeout(() => SplashScreen.hideAsync().catch(() => undefined), SPLASH_SAFETY_MS);
+    return () => clearTimeout(safety);
+  }, [themeLoaded]);
 
   return (
     <NavThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        {/* Trip input is the Route tab; everything it pushes to — the garage, the map picker,
-            the results and the saved trips — is a root Stack route, so those screens get a real
-            back stack and never inherit the floating pill tab bar's inset. */}
-        <Stack>
-          {/* Only the tab shell is declared here. `name="garage"` and `name="plan"` used to be too,
-              but they match no route — without a `garage/_layout` / `plan/_layout` the real names
-              are `garage/index`, `garage/[id]`, `plan/pick`, `plan/results`, `plan/history` — so
-              expo-router warned at every launch while the entries did nothing. Every pushed screen
-              already sets its own title through its own `<Stack.Screen options>`, which is the one
-              place that stays in step with what the screen actually is. */}
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        </Stack>
+        {/* Maintenance banner / one-off notice / update floor from the backend. Fail-open. */}
+        <ClientConfigGate>
+          {/* Trip input is the Route tab; everything it pushes to — the garage, the map picker,
+              the results and the saved trips — is a root Stack route, so those screens get a real
+              back stack and never inherit the floating pill tab bar's inset. */}
+          <Stack>
+            {/* Only the tab shell is declared here. `name="garage"` and `name="plan"` used to be too,
+                but they match no route — without a `garage/_layout` / `plan/_layout` the real names
+                are `garage/index`, `garage/[id]`, `plan/pick`, `plan/results`, `plan/history` — so
+                expo-router warned at every launch while the entries did nothing. Every pushed screen
+                already sets its own title through its own `<Stack.Screen options>`, which is the one
+                place that stays in step with what the screen actually is. */}
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          </Stack>
+        </ClientConfigGate>
         <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
       </GestureHandlerRootView>
     </NavThemeProvider>

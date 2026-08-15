@@ -9,6 +9,7 @@
  */
 
 import { getDb } from "../db/sqlite";
+import { getMeta } from "./metaRepo";
 import { normalizeConnector, normalizePowerKw, type PlugStandard } from "../services/connectorNormalizer";
 import type { CandidateStation } from "../services/planner/planner";
 
@@ -37,7 +38,18 @@ export interface LoadedCandidates {
 }
 
 /**
- * Build the routable candidate set for one plug.
+ * Memo of the last build per plug, keyed on the canonical table's version (`lastMergeAt`).
+ *
+ * The stations table only ever changes through `replaceAllStations()`, which bumps `lastMergeAt`,
+ * so that one string is a complete cache key: same version, same rows, same candidates. Without
+ * this every /api/plan request re-read and re-parsed ~1.2k connector arrays on a phone CPU before
+ * the planner had done any planning. Callers never mutate the returned arrays (plan.ts copies
+ * when it needs to blank statuses; the planner projects into fresh objects), so sharing is safe.
+ */
+const memo = new Map<RoutablePlug, { version: string | null; value: LoadedCandidates }>();
+
+/**
+ * Routable candidate set for one plug — memoized per (plug, lastMergeAt); see `memo`.
  *
  * Power note: `connector.power` is often a site cabinet rating replicated onto every gun, so a
  * multi-gun site can report more than one car will actually draw. That correction belongs in the
@@ -45,6 +57,15 @@ export interface LoadedCandidates {
  * reports `powerConfidence` so the client can say so.
  */
 export function loadCandidateStations(plug: RoutablePlug): LoadedCandidates {
+  const version = getMeta("lastMergeAt");
+  const hit = memo.get(plug);
+  if (hit && hit.version === version) return hit.value;
+  const value = buildCandidateStations(plug);
+  memo.set(plug, { version, value });
+  return value;
+}
+
+function buildCandidateStations(plug: RoutablePlug): LoadedCandidates {
   const rows = getDb().all(
     "SELECT _id, name, lat, lng, connectors, primary_source FROM stations"
   ) as unknown as StationRow[];

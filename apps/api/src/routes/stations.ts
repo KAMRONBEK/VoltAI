@@ -32,6 +32,20 @@ const STATUSES_CACHE: CachePolicy = {
 // How long since the last merge before we flag the data as stale (default 900s = 3x the 5-min cycle).
 const STALE_AFTER_SEC = envInt("STATIONS_STALE_AFTER_SEC", 900);
 
+// The mobile map needs the WHOLE catalog (~1.2k rows, ~250 KB uncompressed at 1000/page). A large
+// page cap keeps that to 1-2 requests instead of 7 separately-cached page objects that can straddle
+// a merge. Default page size stays small for browsing consumers.
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT = 1000;
+
+/** Parse a positive integer query param; `undefined` when absent, `null` when invalid. */
+function intParam(raw: unknown, opts: { min: number; max: number }): number | null | undefined {
+  if (raw == null || raw === "") return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < opts.min || n > opts.max) return null;
+  return n;
+}
+
 function freshness(): { lastMergeAt: string | null; ageSec: number | null; stale: boolean } {
   const lastMergeAt = getMeta("lastMergeAt");
   const ageSec = lastMergeAt
@@ -42,20 +56,25 @@ function freshness(): { lastMergeAt: string | null; ageSec: number | null; stale
 
 router.get("/", (req, res, next) => {
   try {
-    const page = Number(req.query.page ?? 1);
-    const limit = Math.min(Number(req.query.limit ?? 50), 200);
-    const q = req.query.q ? String(req.query.q) : undefined;
+    const page = intParam(req.query.page, { min: 1, max: 100_000 });
+    const limit = intParam(req.query.limit, { min: 1, max: MAX_LIMIT });
+    if (page === null || limit === null) {
+      return res.status(400).json({ message: `page must be >= 1 and limit 1-${MAX_LIMIT}` });
+    }
+    const q = req.query.q ? String(req.query.q).slice(0, 200) : undefined;
 
     const { lastMergeAt } = freshness();
     // Version the cache by merge time + query so a new scrape busts it but identical repeat
     // requests get a cheap 304.
-    const tag = `s-${lastMergeAt ?? "0"}-${page}-${limit}-${q ?? ""}`;
+    const pageN = page ?? 1;
+    const limitN = limit ?? DEFAULT_LIMIT;
+    const tag = `s-${lastMergeAt ?? "0"}-${pageN}-${limitN}-${q ?? ""}`;
     if (applyCache(req, res, LIST_CACHE, { lastModified: lastMergeAt, tag })) return;
 
-    const { items, total } = listStations({ page, limit, q });
-    res.json({ page, limit, total, items });
+    const { items, total } = listStations({ page: pageN, limit: limitN, q });
+    return res.json({ page: pageN, limit: limitN, total, lastMergeAt, items });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
@@ -90,11 +109,15 @@ router.get("/nearby", (req, res, next) => {
   try {
     const lat = Number(req.query.lat);
     const lng = Number(req.query.lng);
-    const radius = Number(req.query.radius ?? 5000);
+    const radiusRaw = req.query.radius == null || req.query.radius === "" ? 5000 : Number(req.query.radius);
 
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
       return res.status(400).json({ message: "lat and lng query params are required" });
     }
+    if (!Number.isFinite(radiusRaw) || radiusRaw <= 0) {
+      return res.status(400).json({ message: "radius must be a positive number of meters" });
+    }
+    const radius = Math.min(radiusRaw, 500_000);
 
     const { lastMergeAt } = freshness();
     const tag = `nb-${lastMergeAt ?? "0"}-${lat.toFixed(4)}-${lng.toFixed(4)}-${radius}`;
@@ -109,7 +132,7 @@ router.get("/nearby", (req, res, next) => {
 
 router.get("/search", (req, res, next) => {
   try {
-    const q = String(req.query.q ?? "").trim();
+    const q = String(req.query.q ?? "").trim().slice(0, 200);
     if (!q) {
       return res.status(400).json({ message: "q query param is required" });
     }
@@ -136,6 +159,8 @@ router.get("/:id", (req, res, next) => {
     if (!station) {
       return res.status(404).json({ message: "station not found" });
     }
+    const { lastMergeAt } = freshness();
+    if (applyCache(req, res, LIST_CACHE, { lastModified: lastMergeAt, tag: `id-${lastMergeAt ?? "0"}-${id}` })) return;
     return res.json(station);
   } catch (error) {
     return next(error);

@@ -1,20 +1,12 @@
-import { RawStationModel } from "../../src/models/RawStation";
+import { upsertRawStations as upsertRawStationsSqlite } from "../../src/repositories/rawStationRepo";
 import type { RawStationInput, SourceId } from "../../src/types/station";
 
+/** Upsert map-scraper output into the embedded SQLite raw_stations table (dev-box tool). */
 export async function upsertRawStations(stations: RawStationInput[]): Promise<void> {
   if (!stations.length) {
     return;
   }
-
-  const ops = stations.map((station) => ({
-    updateOne: {
-      filter: { source: station.source, externalId: station.externalId },
-      update: { $set: { ...station, scrapedAt: station.scrapedAt ?? new Date() } },
-      upsert: true
-    }
-  }));
-
-  await RawStationModel.bulkWrite(ops as any[], { ordered: false });
+  upsertRawStationsSqlite(stations);
 }
 
 export function createStationFromMapCard(input: {

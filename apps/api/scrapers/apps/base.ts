@@ -10,6 +10,12 @@ import type { AppSelectors } from "../appium/loginFlow";
 export interface HttpEndpoint {
   url: string;
   method?: "GET" | "POST";
+  /**
+   * For paginated list APIs (e.g. DRF `{count,next,previous,results}`): return the absolute URL of
+   * the next page from a payload, or null when done. The scraper follows the chain (bounded) and
+   * hands every page to `parseResponse`.
+   */
+  nextPage?: (payload: unknown) => string | null;
   headers?: Record<string, string>;
   /** Optional JSON body for POST endpoints. */
   body?: unknown;

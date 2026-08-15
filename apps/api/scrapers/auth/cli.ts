@@ -1,9 +1,8 @@
-import dotenv from "dotenv";
+import "../../src/env";
 import * as beon from "./beon";
 import * as proTok from "./pro-tok";
 import * as tokbor from "./tokbor";
 
-dotenv.config();
 
 /**
  * Login-replay CLI for OTP-gated operator sources. The npm script bakes in the source, e.g.

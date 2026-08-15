@@ -154,12 +154,14 @@ export function describeSpecDrift(
     };
   }
 
-  // Range is compared with a tolerance: it is rounded to whole km on the way out, and a 1 km
-  // difference is not something a driver needs to be warned about.
+  // Every figure is compared against what the request actually sent, not the raw garage value:
+  // `buildPlanUrl` rounds range, dcKw and consWhKm to whole numbers on the way out and the server
+  // echoes those, so a car with dcPeakKw 87.5 would otherwise be flagged as "changed" against
+  // its own plan forever. Sub-unit differences are not something a driver needs a warning about.
   const changed: string[] = [];
   if (Math.abs(stored.rangeKm - car.rangeKm) > 1) changed.push('range');
-  if (stored.assumed.dcPeakKw !== car.dcPeakKw) changed.push('charging speed');
-  if (stored.assumed.consWhKm !== car.consWhKm) changed.push('efficiency');
+  if (stored.assumed.dcPeakKw !== Math.round(car.dcPeakKw)) changed.push('charging speed');
+  if (stored.assumed.consWhKm !== Math.round(car.consWhKm)) changed.push('efficiency');
   if (stored.assumed.curve !== car.curvePreset) changed.push('battery type');
   if (!changed.length) return null;
 

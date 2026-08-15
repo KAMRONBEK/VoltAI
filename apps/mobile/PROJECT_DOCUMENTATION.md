@@ -1,15 +1,19 @@
 # VoltAI - EV Charger Application Documentation
 
-> **Document status (updated 2026-08-15).** This started life as the pre-build planning
+> **Document status (updated 2026-08-16).** This started life as the pre-build planning
 > document. The stack questions it left open ("to be determined") have all been decided and
 > shipped; the sections below have been corrected to describe what actually exists. The
 > phased plan and the week-by-week timeline near the end are kept as **historical planning
 > record** and are labelled as such.
 >
 > The backend is **not** a cloud service: the Express API, the operator scrapers and the
-> database all run together on one always-on Android phone, exposed at `https://api.voltai.uz`
-> through an outbound Cloudflare Tunnel. Why: [`/ARCHITECTURE.md`](../../ARCHITECTURE.md).
-> How to deploy it: [`apps/api/RUNBOOK.md`](../api/RUNBOOK.md).
+> database all run together on one always-on Android phone, to be exposed at
+> `https://api.voltai.uz` through an outbound Cloudflare Tunnel. As of 2026-08-16 it is
+> **deployed and supervised on that phone** (~1,222 stations, backup drill done), but the public
+> hostname is **not cut over yet** — DNS Gate 2 and the tunnel are still owner actions, so the API
+> answers only on the phone (`127.0.0.1:8080`) or over `adb forward`. Why:
+> [`/ARCHITECTURE.md`](../../ARCHITECTURE.md). How to deploy it:
+> [`apps/api/RUNBOOK.md`](../api/RUNBOOK.md).
 
 ## Project Overview
 
@@ -211,27 +215,40 @@ Settings → Garage → Manage Vehicles / Set Preferences
 - `/api/stations/statuses` - Compact near-real-time status feed
 - `/api/stations/nearby` - Stations near a coordinate
 - `/api/stations/search` - Full-text station search
-- `/api/plan` - Generate trip plans (**not** `/api/routes/plan`)
-- `/api/health`, `/api/health/detail` - Liveness and data-freshness
+- `/api/plan` - Generate trip plans (**not** `/api/routes/plan`); answers 400 for bad params or
+  endpoints outside the Central-Asia service area, 429 when a client plans too often, 503 when
+  the phone is busy, and `geometry: "estimated"` (straight-line) when routing is unavailable
+- `/api/client-config` - Read at launch (fail-open): maintenance banner, one-time message,
+  forced-update threshold
+- `/api/health`, `/api/health/ready`, `/api/health/detail` - Liveness, readiness (503 when the
+  catalog is empty or the scraper is stale) and data-freshness detail
 
 There are **no `/api/user/*` endpoints.** The app is account-free: vehicle profiles (garage)
 and saved trips live in on-device AsyncStorage and are never sent to the server. The only
-non-public route is `POST /ingest`, which is operator-only.
+non-public route is `POST /ingest`, which the API refuses unless the request comes from the
+phone's own loopback interface (and never through the tunnel), on top of a shared-secret token.
 
 ## Performance Considerations
+
+> Original intent list; as shipped (2026-08-16): native marker clustering; the whole catalog is
+> fetched in 1000-row pages with ETags and cached in AsyncStorage as last-known-good; connector
+> statuses are polled from `/api/stations/statuses` **only while the app is in the foreground**
+> (there is no background fetch/task — the "Live" pill shows the backend-reported data age
+> instead); the catalog load does not wait for GPS and refetches when connectivity or the
+> foreground returns; location is foreground-only ("When In Use").
 
 - **Map Optimization**: Implement marker clustering for large datasets
 - **Data Caching**: Cache station data and user preferences locally
 - **Lazy Loading**: Load charger details only when needed
-- **Background Updates**: Update charger status in background
+- **Background Updates**: Update charger status in background *(not built — foreground polling only)*
 - **Battery Optimization**: Efficient location tracking
 
 ## Security & Privacy
 
-- **Location Privacy**: Clear user consent for location tracking. The device location is never sent to the VoltAI API.
-- **Data Storage**: user preferences, the garage and saved trips stay in on-device AsyncStorage; nothing is synced to a server, so there is no server-side user data to protect.
-- **API Security**: the public read endpoints are unauthenticated by design — there are no user accounts and no sign-in. The only protected surface is `POST /ingest`, gated by the `x-ingest-token` header and blocked at the Cloudflare Tunnel ingress.
-- **Transport**: HTTPS everywhere. TLS is terminated at the Cloudflare edge in front of the tunnel.
+- **Location Privacy**: foreground-only ("When In Use") permission, used on the device to centre the map. The map never sends the device location to the VoltAI API. The **one exception is trip planning**: when the user asks for a route, the chosen start and end coordinates (which may be the current position if "from here" was picked) and the car's figures are sent to VoltAI's server, which forwards only the coordinates to the MyTaxi routing provider — with no name, account or device identifier. This is what the published privacy policy says (in-app Settings → About, <https://voltai.uz/uz/privacy>, `store/privacy-policy.html`).
+- **Data Storage**: user preferences, the garage and saved trips stay in on-device AsyncStorage; nothing is synced to a server, so there is no server-side user data to protect. No analytics, ads or crash-reporting SDKs.
+- **API Security**: the public read endpoints are unauthenticated by design — there are no user accounts and no sign-in. The only protected surface is `POST /ingest`: the API binds `127.0.0.1` and refuses `/ingest` for any non-loopback peer or any request that arrived through the tunnel, then checks the `x-ingest-token` header.
+- **Transport**: HTTPS everywhere once the tunnel is up (TLS terminated at the Cloudflare edge). Android cleartext is only enabled in builds whose `EXPO_PUBLIC_API_BASE_URL` is `http://` (the `development` profile talking to `127.0.0.1:8080`).
 - **Compliance**: Adhere to Uzbekistan data protection regulations
 
 ## Future Enhancements
@@ -246,8 +263,9 @@ non-public route is `POST /ingest`, which is operator-only.
 ## Development Timeline (historical — the original 8-week estimate)
 
 > Kept for the record only. The app was built and the schedule below is not how it played out;
-> do not read it as remaining work. What is left before public release is the backend cutover
-> (Cloudflare DNS + tunnel), tracked in `store/RELEASE-CHECKLIST.md` and `apps/api/RUNBOOK.md`.
+> do not read it as remaining work. The backend is deployed on the phone (2026-08-16); what is
+> left before public release is the cutover of `api.voltai.uz` (Cloudflare DNS + tunnel) and the
+> store items tracked in `store/RELEASE-CHECKLIST.md` and `apps/api/RUNBOOK.md`.
 
 ### Week 1-2: Setup & Basic Map
 

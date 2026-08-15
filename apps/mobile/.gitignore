@@ -45,3 +45,9 @@ app-example
 # local scratch (screenshots, build logs)
 tmp/
 tmp-*.log
+
+# store credentials (Play service-account JSON, keystores) — never committed
+secrets/
+
+# EAS local credentials (keystore passwords) — never commit
+credentials.json

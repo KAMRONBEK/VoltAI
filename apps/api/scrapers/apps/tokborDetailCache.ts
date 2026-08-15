@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { envOpt } from "../../src/env";
 
 /**
  * On-disk cache of per-station Tokbor detail (name/address/price/power), keyed by station id.
@@ -20,8 +21,9 @@ export interface TokborDetail {
 
 let cache: Map<string, TokborDetail> | null = null;
 
-function cachePath(): string {
-  return process.env.TOKBOR_DETAILS_PATH ?? path.join(process.cwd(), "data", "tokbor-details.json");
+/** Blank `TOKBOR_DETAILS_PATH=` counts as unset. */
+export function cachePath(): string {
+  return envOpt("TOKBOR_DETAILS_PATH") ?? path.join(process.cwd(), "data", "tokbor-details.json");
 }
 
 export function loadTokborDetails(): Map<string, TokborDetail> {
@@ -42,6 +44,8 @@ export function getTokborDetail(id: string | number): TokborDetail | undefined {
 export function saveTokborDetails(map: Record<string, TokborDetail>): void {
   const file = cachePath();
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(map));
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(map));
+  fs.renameSync(tmp, file);
   cache = new Map(Object.entries(map));
 }

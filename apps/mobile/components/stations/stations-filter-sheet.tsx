@@ -24,6 +24,11 @@ type Props = {
   open: boolean;
   filters: StationsFilters;
   options: FilterOptions;
+  /**
+   * False while every status on the map is `unknown` (an old on-device cache, no backend contact
+   * yet). "Only available" would then hide every pin, so it is shown off and disabled instead.
+   */
+  availabilityKnown?: boolean;
   onClose: () => void;
   onChange: (next: StationsFilters) => void;
   onReset: () => void;
@@ -33,7 +38,15 @@ function toggleInArray(arr: string[], value: string): string[] {
   return arr.includes(value) ? arr.filter((x) => x !== value) : [...arr, value];
 }
 
-export function StationsFilterSheet({ open, filters, options, onClose, onChange, onReset }: Props) {
+export function StationsFilterSheet({
+  open,
+  filters,
+  options,
+  availabilityKnown = true,
+  onClose,
+  onChange,
+  onReset,
+}: Props) {
   const c = useThemeColors();
   const insets = useSafeAreaInsets();
   const sheetRef = useRef<BottomSheet | null>(null);
@@ -71,9 +84,17 @@ export function StationsFilterSheet({ open, filters, options, onClose, onChange,
         </View>
 
         <View style={styles.row}>
-          <ThemedText type="defaultSemiBold">Only available</ThemedText>
+          <View style={styles.rowLabel}>
+            <ThemedText type="defaultSemiBold">Only available</ThemedText>
+            {!availabilityKnown ? (
+              <ThemedText style={[styles.rowHint, { color: c.textMuted }]}>
+                Live availability isn’t known right now
+              </ThemedText>
+            ) : null}
+          </View>
           <Switch
-            value={filters.onlyAvailable}
+            value={filters.onlyAvailable && availabilityKnown}
+            disabled={!availabilityKnown}
             onValueChange={(v) => onChange({ ...filters, onlyAvailable: v })}
             trackColor={{ true: c.tint }}
           />
@@ -225,6 +246,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 6,
+  },
+  rowLabel: {
+    flex: 1,
+    gap: 2,
+    paddingRight: 12,
+  },
+  rowHint: {
+    fontSize: 12,
   },
   section: {
     gap: 10,

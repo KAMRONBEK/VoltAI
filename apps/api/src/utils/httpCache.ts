@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import type { Request, Response } from "express";
+import { envInt as envIntImpl } from "../env";
 
 /**
  * HTTP caching for the read endpoints. The API origin is a single phone CPU, so both the
@@ -26,12 +28,18 @@ export function cacheControl(policy: CachePolicy): string {
   return parts.join(", ");
 }
 
-/** Read an integer env var with a fallback (used for tunable cache TTLs). */
+/** Read an integer env var with a fallback (used for tunable cache TTLs). Re-exported from env.ts. */
 export function envInt(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw == null || raw.trim() === "") return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : fallback;
+  return envIntImpl(name, fallback);
+}
+
+/**
+ * ETags must be valid HTTP header tokens: Node rejects any header char > 0xFF with
+ * ERR_INVALID_CHAR, which turned every Cyrillic / Uzbek-Latin (oʻ, gʻ) search query into a 500.
+ * Tags are therefore hashed — the tag stays a pure function of (version, query) so 304s still work.
+ */
+export function etagFor(tag: string): string {
+  return `W/"${createHash("sha1").update(tag).digest("base64url").slice(0, 27)}"`;
 }
 
 /**
@@ -47,7 +55,7 @@ export function applyCache(
   res.set("Cache-Control", cacheControl(policy));
   res.set("Vary", "Accept-Encoding");
 
-  const etag = `W/"${version.tag}"`;
+  const etag = etagFor(version.tag);
   res.set("ETag", etag);
 
   let lastModifiedHttp: string | undefined;
@@ -61,6 +69,8 @@ export function applyCache(
 
   const ifNoneMatch = req.headers["if-none-match"];
   if (typeof ifNoneMatch === "string") {
+    // RFC 9110 §13.1.3: when If-None-Match is present, If-Modified-Since must be ignored — a
+    // client whose ETag no longer matches must get a fresh 200 even if Last-Modified is unchanged.
     // Exact match first. If-None-Match is a comma-separated list, but an ETag's opaque part may
     // itself contain a comma — splitting first would shred such a tag and silently never 304,
     // turning every conditional request into a full recomputation on a phone-sized origin.
@@ -73,6 +83,7 @@ export function applyCache(
       res.status(304).end();
       return true;
     }
+    return false;
   }
 
   const ifModifiedSince = req.headers["if-modified-since"];

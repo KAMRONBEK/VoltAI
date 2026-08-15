@@ -1,5 +1,5 @@
-import dotenv from "dotenv";
-import { RawStationModel } from "../src/models/RawStation";
+import "../src/env";
+import { upsertRawStations } from "../src/repositories/rawStationRepo";
 import { appScraperConfigs } from "./apps";
 import { openMapAndZoomOut, performOtpLogin } from "./appium/loginFlow";
 import { ensureAppLaunched } from "./appium/setup";
@@ -8,7 +8,6 @@ import { parseHarCandidates } from "./proxy/mitmparser";
 import { GrizzlySmsClient } from "./sms/grizzlysms";
 import { withDatabase } from "./utils/db";
 
-dotenv.config();
 
 async function main(): Promise<void> {
   const appName = process.argv[2];
@@ -41,21 +40,8 @@ async function main(): Promise<void> {
   }
 
   await withDatabase(async () => {
-    const operations = parsed.map((station) => ({
-      updateOne: {
-        filter: { source: station.source, externalId: station.externalId },
-        update: {
-          $set: {
-            ...station,
-            scrapedAt: station.scrapedAt ?? new Date()
-          }
-        },
-        upsert: true
-      }
-    }));
-
-    if (operations.length > 0) {
-      await RawStationModel.bulkWrite(operations as any[], { ordered: false });
+    if (parsed.length > 0) {
+      upsertRawStations(parsed);
     }
   });
 }

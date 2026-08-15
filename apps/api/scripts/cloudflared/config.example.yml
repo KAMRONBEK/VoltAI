@@ -1,6 +1,11 @@
-# Cloudflare Tunnel config for serving the phone-hosted API at https://api.voltai.uz.
+# Cloudflare Tunnel config for serving the phone-hosted API at https://api.voltai.uz
+# — LOCALLY-MANAGED tunnel variant. (The simpler REMOTELY-MANAGED variant needs no config file at
+# all: create the tunnel in Zero Trust → Networks → Tunnels, add the public hostname
+# api.voltai.uz → http://127.0.0.1:8080 there, and put the connector token in
+# ~/.cloudflared/token on the phone; the runit service picks that up first. See RUNBOOK §4.)
+#
 # Copy to ~/.cloudflared/config.yml on the phone and fill in <TUNNEL-UUID>.
-# Requires the voltai.uz DNS zone to be on Cloudflare (see RUNBOOK.md §Gate 2).
+# Requires the voltai.uz DNS zone to be on Cloudflare (RUNBOOK §Gate 2).
 
 tunnel: <TUNNEL-UUID>
 credentials-file: /data/data/com.termux/files/home/.cloudflared/<TUNNEL-UUID>.json
@@ -14,9 +19,11 @@ edge-ip-version: 4
 loglevel: info
 
 ingress:
-  # /ingest must never be reachable from the internet — it's loopback-only on the phone.
+  # Belt and braces: the API itself already 404s any /ingest request that arrives through the
+  # tunnel (cf-connecting-ip present) or from a non-loopback peer. Case-insensitive on purpose —
+  # Express routing is case-insensitive, Go regexps are not.
   - hostname: api.voltai.uz
-    path: ^/ingest
+    path: (?i)^/ingest
     service: http_status:404
   - hostname: api.voltai.uz
     service: http://127.0.0.1:8080

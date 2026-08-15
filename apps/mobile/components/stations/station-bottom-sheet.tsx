@@ -1,6 +1,7 @@
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { getApps } from 'react-native-map-link';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -57,6 +58,24 @@ function formatMoney(n: number): string {
 type NavApp = { id: string; name: string; icon: unknown; open: () => Promise<string | void> };
 const APPS_WHITELIST = ['google-maps', 'apple-maps', 'yandex', 'yandex-maps', 'dgis', 'maps-me', 'waze'];
 
+/**
+ * A directions link that needs no package visibility at all.
+ *
+ * `getApps` detects apps with `canOpenURL`, which on Android 11+ only sees schemes declared in the
+ * manifest's `<queries>` (app.config.ts declares the common ones, but not every navigator). Firing
+ * a plain `geo:` intent is different — starting an intent is not querying for one — so Android
+ * shows its own chooser of every installed map app. iOS gets Apple Maps' universal link.
+ */
+function fallbackNavUrl(s: Station): string {
+  const { latitude: lat, longitude: lng } = s.location;
+  // `encodeURIComponent` leaves `(` and `)` alone, and the `geo:` label is itself wrapped in
+  // parentheses — a name like "Spectre (Yunusobod)" would close the label early.
+  const label = encodeURIComponent(s.name).replace(/[()]/g, (ch) => '%' + ch.charCodeAt(0).toString(16));
+  return Platform.OS === 'ios'
+    ? `http://maps.apple.com/?ll=${lat},${lng}&q=${label}`
+    : `geo:${lat},${lng}?q=${lat},${lng}(${label})`;
+}
+
 export function StationBottomSheet({ stations, onClose }: Props) {
   const c = useThemeColors();
   const insets = useSafeAreaInsets();
@@ -112,8 +131,14 @@ export function StationBottomSheet({ stations, onClose }: Props) {
     [connectorRows]
   );
 
-  async function ensureNavAppsLoaded(s: Station) {
-    if (navLoading || navApps.length) return;
+  /**
+   * Hand the coordinate to whatever map app the user has. Several detected → show the picker;
+   * exactly one → open it; none → the `geo:` / Apple Maps fallback. On Android the Google entry is
+   * always "found" (it is an https link), so it alone counts as none: the `geo:` chooser then lists
+   * Google Maps *and* anything else installed, instead of silently preferring Google.
+   */
+  async function openNav(s: Station) {
+    if (navLoading) return;
     setNavError(null);
     setNavLoading(true);
     try {
@@ -124,10 +149,23 @@ export function StationBottomSheet({ stations, onClose }: Props) {
         address: s.address,
         alwaysIncludeGoogle: true,
         appsWhiteList: APPS_WHITELIST,
-      })) as NavApp[];
-      setNavApps(list);
-    } catch (e) {
-      setNavError(e instanceof Error ? e.message : 'Failed to load navigation apps.');
+      }).catch(() => [])) as NavApp[];
+
+      const detected = Platform.OS === 'android' ? list.filter((a) => a.id !== 'google-maps') : list;
+      if (detected.length > 1) {
+        setNavApps(list);
+        setShowNavApps(true);
+        sheetRef.current?.snapToIndex(2);
+        return;
+      }
+      if (detected.length === 1 && Platform.OS !== 'android') {
+        await detected[0].open();
+        return;
+      }
+      await Linking.openURL(fallbackNavUrl(s));
+    } catch {
+      setNavError('Could not open a navigation app. Install one (Yandex Navigator, 2GIS, Google Maps…) and try again.');
+      setShowNavApps(true);
     } finally {
       setNavLoading(false);
     }
@@ -269,61 +307,71 @@ export function StationBottomSheet({ stations, onClose }: Props) {
             <View style={styles.actionsRow}>
               <Pressable
                 style={[styles.actionPrimary, { backgroundColor: c.accent }]}
-                onPress={async () => {
-                  const next = !showNavApps;
-                  setShowNavApps(next);
-                  if (next) {
-                    await ensureNavAppsLoaded(activeStation);
-                    sheetRef.current?.snapToIndex(2);
+                disabled={navLoading}
+                onPress={() => {
+                  if (showNavApps) {
+                    setShowNavApps(false);
+                    return;
                   }
+                  void openNav(activeStation);
                 }}
                 accessibilityRole="button">
-                <ThemedText style={[styles.actionPrimaryText, { color: c.onAccent }]}>
-                  {showNavApps ? 'Hide navigation apps' : 'Navigate'}
-                </ThemedText>
+                {navLoading ? (
+                  <ActivityIndicator color={c.onAccent} />
+                ) : (
+                  <ThemedText style={[styles.actionPrimaryText, { color: c.onAccent }]}>
+                    {showNavApps ? 'Hide navigation apps' : 'Navigate'}
+                  </ThemedText>
+                )}
               </Pressable>
             </View>
 
             {showNavApps ? (
               <View style={styles.navSection}>
-                {navLoading ? (
+                {navError ? (
                   <View style={styles.navState}>
-                    <ActivityIndicator />
-                    <ThemedText type="defaultSemiBold">Loading…</ThemedText>
-                  </View>
-                ) : navError ? (
-                  <View style={styles.navState}>
-                    <ThemedText type="defaultSemiBold">Couldn’t load apps</ThemedText>
+                    <ThemedText type="defaultSemiBold">Couldn’t open directions</ThemedText>
                     <ThemedText>{navError}</ThemedText>
                   </View>
-                ) : navApps.length === 0 ? (
-                  <View style={styles.navState}>
-                    <ThemedText type="defaultSemiBold">No apps found</ThemedText>
-                    <ThemedText>Install a navigation app to start directions.</ThemedText>
-                  </View>
-                ) : (
-                  <View style={styles.navList}>
-                    {navApps.map((app) => (
-                      <Pressable
-                        key={app.id}
-                        style={[styles.navRow, { backgroundColor: c.surface, borderColor: c.border }]}
-                        onPress={async () => {
-                          try {
-                            await app.open();
-                          } catch (e) {
-                            setNavError(e instanceof Error ? e.message : 'Failed to open app.');
-                          }
-                        }}
-                        accessibilityRole="button">
-                        <View style={styles.navRowLeft}>
-                          <Image source={app.icon as never} style={styles.navIcon} />
-                          <ThemedText type="defaultSemiBold">{app.name}</ThemedText>
-                        </View>
-                        <ThemedText style={{ color: c.tint }}>Open</ThemedText>
-                      </Pressable>
-                    ))}
-                  </View>
-                )}
+                ) : null}
+                <View style={styles.navList}>
+                  {navApps.map((app) => (
+                    <Pressable
+                      key={app.id}
+                      style={[styles.navRow, { backgroundColor: c.surface, borderColor: c.border }]}
+                      onPress={async () => {
+                        try {
+                          await app.open();
+                        } catch (e) {
+                          setNavError(e instanceof Error ? e.message : 'Failed to open app.');
+                        }
+                      }}
+                      accessibilityRole="button">
+                      <View style={styles.navRowLeft}>
+                        <Image source={app.icon as never} style={styles.navIcon} />
+                        <ThemedText type="defaultSemiBold">{app.name}</ThemedText>
+                      </View>
+                      <ThemedText style={{ color: c.tint }}>Open</ThemedText>
+                    </Pressable>
+                  ))}
+                  {/* The system chooser, for navigators the picker could not see. */}
+                  <Pressable
+                    style={[styles.navRow, { backgroundColor: c.surface, borderColor: c.border }]}
+                    onPress={() =>
+                      Linking.openURL(fallbackNavUrl(activeStation)).catch(() =>
+                        setNavError('No app on this phone can open a map location.')
+                      )
+                    }
+                    accessibilityRole="button">
+                    <View style={styles.navRowLeft}>
+                      <View style={[styles.navIcon, styles.navIconFallback, { borderColor: c.border }]}>
+                        <MaterialIcons name="map" size={16} color={c.icon} />
+                      </View>
+                      <ThemedText type="defaultSemiBold">Other app…</ThemedText>
+                    </View>
+                    <ThemedText style={{ color: c.tint }}>Open</ThemedText>
+                  </Pressable>
+                </View>
               </View>
             ) : null}
           </>
@@ -434,5 +482,6 @@ const styles = StyleSheet.create({
   },
   navRowLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   navIcon: { width: 26, height: 26, borderRadius: 7 },
+  navIconFallback: { borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, paddingBottom: 12 },
 });

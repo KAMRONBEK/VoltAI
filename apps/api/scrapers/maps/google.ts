@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import dotenv from "dotenv";
+import "../../src/env";
 import puppeteer, { type Page } from "puppeteer";
 import { createStationFromMapCard, upsertRawStations } from "./common";
 import { loadCheckpoint, saveCheckpoint } from "./checkpoint";
@@ -9,7 +9,6 @@ import { assertCoverageQuality, createMetrics, saveMetrics } from "./metrics";
 import { jitterDelay, randomUserAgent, withRetry } from "./runtime";
 import { withDatabase } from "../utils/db";
 
-dotenv.config();
 
 interface Candidate {
   name: string;

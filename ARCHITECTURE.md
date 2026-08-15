@@ -1,20 +1,21 @@
 # VoltAI — Phone-as-Backend Architecture
 
-> Status (per pillar, checked 2026-08-15) — this document is the plan of record for three
-> coordinated changes, and they are **not** at the same stage:
+> Status (per pillar, checked 2026-08-16 — on the real phone, over ssh) — this document is the
+> plan of record for three coordinated changes, and they are **not** at the same stage:
 >
 > | Pillar | Status |
 > |---|---|
 > | **A. Mobile map** — replace `react-native-maps` (Google) with `expo-yandex-mapkit`. | ✅ **BUILT.** `apps/mobile/package.json` has `expo ^57.0.0`, `react 19.2.3`, `react-native 0.86.2`, `expo-dev-client ~57.0.10`, `expo-yandex-mapkit ^2.22.4`, and no `react-native-maps`. |
 > | **B. Data source** — originally: move charger-app JSON capture onto a physical, always-on Android phone, capturing on-device with **no root**. | ⛔ **ABANDONED — decision reversed.** On-device TLS interception was tried and failed (Android 15, no root, Flutter apps with pinning; reFlutter crashed the app). It is **superseded by off-device HTTP scraping** of each operator's own reverse-engineered API, called in-process by the API. Source of truth: [`apps/api/docs/SCRAPERS.md`](apps/api/docs/SCRAPERS.md). The capture design is kept below (§5.1-§5.2) for history only. |
-> | **C. Backend** — the same phone **is** the backend: Termux + Node + embedded SQLite + Cloudflare Tunnel serving `api.voltai.uz`. Vercel + MongoDB Atlas are retired. | 🟡 **CODE BUILT, NOT YET DEPLOYED.** The SQLite store, repositories, `/ingest`, `/api/health/detail`, the randomized in-process scraper and the route planner all exist and are committed. What is unbuilt is the *deployment*: Gate 2 (DNS) is still open (§9) and [`apps/api/RUNBOOK.md`](apps/api/RUNBOOK.md) has never been run end-to-end on a phone. |
+> | **C. Backend** — the same phone **is** the backend: Termux + Node + embedded SQLite + Cloudflare Tunnel serving `api.voltai.uz`. Vercel + MongoDB Atlas are retired. | 🟢 **DEPLOYED ON THE PHONE (2026-08-16), supervised.** Runs on the ASUS Zenfone 10 (AI2302, Android 15) under Termux: runit services `voltai-api`, `voltai-watchdog`, `voltai-backup`, `sshd` (+ `cloudflared`, down until configured), Termux:Boot hook `~/.termux/boot/00-voltai` (wake-lock + `service-daemon start`), a real on-disk DB at `~/voltai/data/voltai.sqlite`, ~1,222 canonical stations (Tokbor, Spectre, K-Watt, Beon), `/api/plan` live with the MyTaxi key, repeatable deploys via `scripts/phone/deploy.sh`, and the **encrypted backup + restore drill done once**. **Still open:** Gate 2 (DNS, §9) and the Cloudflare tunnel (RUNBOOK §4) — until then the API answers only on the phone (`127.0.0.1:8080`) or over `adb forward`; plus the owner items in §8 Phase 5/6. |
 >
 > Deployment **how**: [`apps/api/RUNBOOK.md`](apps/api/RUNBOOK.md). Deployment **why**: this document.
 >
 > Every external fact below was verified against primary sources during design; the
 > load-bearing ones are cited. Of the two hard gates originally listed in §9, Gate 1 is now
 > **closed with a negative result** (it gated the abandoned capture pillar); **Gate 2 (DNS) is the
-> sole remaining gate** and is the only thing blocking launch.
+> sole remaining gate** and — together with configuring the tunnel that depends on it — the only
+> thing between the running phone and a public `https://api.voltai.uz`.
 
 ---
 
@@ -48,10 +49,11 @@ thing defensible. Everything else is engineering.
 - ⏸️ **Cloud read-replica (§6): deferred, not cancelled.** Documented and recommended for real users;
   not in the initial rollout unless/until the owner opts in. Until then the phone is a single point of
   failure — acceptable for beta only.
-- ℹ️ **DNS status (re-verified 2026-08-15):** `voltai.uz` nameservers are still `rdns1/2/3.ahost.uz`,
+- ℹ️ **DNS status (re-verified 2026-08-16):** `voltai.uz` nameservers are still `rdns1/2/3.ahost.uz`,
   not Cloudflare, and `api.voltai.uz` is still a CNAME to `…vercel-dns-017.com` returning
   HTTP 500 `FUNCTION_INVOCATION_FAILED` → the nameserver move is still a Gate-2 prerequisite
-  (see `apps/api/docs/GATES.md`).
+  (see `apps/api/docs/GATES.md`). The Vercel entrypoint (`apps/api/api/index.ts`, `vercel.json`)
+  was deleted from the repo on 2026-08-16, so nothing will ever redeploy that function.
 - ℹ️ **APK acquisition:** `scrapers/apk/downloader.ts` (APKPure scrape) is stale; use `adb pull` off the
   phone instead (`npm run gate:pull`). Still the right tool — the APKs are now decompiled *statically*
   to extract each operator's HTTP endpoints, rather than instrumented at runtime.
@@ -97,31 +99,42 @@ thing defensible. Everything else is engineering.
 │  │        → stationsRepository.replaceAll() in one BEGIN IMMEDIATE txn → stations          │ │
 │  └─────────────────────────────┬───────────────────────────────────────────────────────────┘ │
 │  ┌ Node/Express (apps/api) ────┴───────────────────────────────────────────────────────────┐ │
-│  │ ONE listener — app.listen(PORT); PORT=8080 on the phone. There is no second listener.    │ │
-│  │  public → /api/health  /api/health/detail                                                │ │
+│  │ ONE listener — app.listen(PORT, HOST); HOST defaults to 127.0.0.1, PORT=8080 on the      │ │
+│  │ phone. There is no second listener.                                                      │ │
+│  │  public → /api/health (liveness)  /api/health/ready (503 if empty/temp-DB/stale)         │ │
+│  │           /api/health/detail (build.commit, dbPath, per-source state, auth expiry)       │ │
 │  │           /api/stations  /nearby  /search  /:id  /api/stations/statuses                  │ │
-│  │           /api/plan  (+ /api/plan/health)                        (contract preserved)    │ │
-│  │  /ingest → mounted on the SAME app (src/app.ts:86). Token-gated (x-ingest-token) and     │ │
-│  │           404'd at the cloudflared ingress. It is a side door for off-device pushes,     │ │
-│  │           NOT the primary data path.                                                     │ │
+│  │           /api/plan  (+ /api/plan/health)   /api/client-config   (contract preserved)    │ │
+│  │  /ingest → mounted on the SAME app (src/app.ts). Refused (404) by the API itself unless  │ │
+│  │           the peer is loopback AND no cf-connecting-ip/cf-ray header (i.e. not via the   │ │
+│  │           tunnel), then token-gated (x-ingest-token); JSON body parser mounted ONLY here. │ │
+│  │           Side door for off-device pushes, NOT the primary data path.                    │ │
 │  │  node-cron MERGE_CRON (*/15) → standalone merge: DISABLED whenever SCRAPE_ENABLED is     │ │
-│  │           not 'false' (src/index.ts:130-139). Exists only for a scrape-off replica fed   │ │
-│  │           purely by /ingest.                                                             │ │
-│  │ store: node-sqlite3-wasm  ~/voltai/data/voltai.sqlite  (FTS5, journal=TRUNCATE)           │ │
+│  │           not 'false'. Exists only for a scrape-off replica fed purely by /ingest.       │ │
+│  │  daily VACUUM INTO snapshot 02:30 (+ once after boot) → <db dir>/snapshots/              │ │
+│  │ store: node-sqlite3-wasm  ~/voltai/data/voltai.sqlite  (FTS5, journal=TRUNCATE,          │ │
+│  │        stale .lock dir cleared on open when the owning pid is dead; SIGTERM closes clean) │ │
 │  └───────────────────────────────────┬─────────────────────────────────────────────────────┘ │
 │  ┌ cloudflared tunnel run voltai-api ─┴────────────────────────────────────────────────────┐ │
-│  │ api.voltai.uz → http://127.0.0.1:8080     (outbound QUIC/HTTP2, no inbound ports)        │ │
+│  │ api.voltai.uz → http://127.0.0.1:8080     (outbound HTTP2, no inbound ports)             │ │
+│  │ ⏳ runit service exists but is DOWN until ~/.cloudflared/token|config.yml exists (2026-08-16)│ │
 │  └───────────────────────────────────┬─────────────────────────────────────────────────────┘ │
+│  ┌ supervision ───────────────────────┴────────────────────────────────────────────────────┐ │
+│  │ voltai-watchdog (2 min: wake-lock, restart API after 3 liveness misses, log readiness)  │ │
+│  │ voltai-backup (03:00: encrypted archive of the snapshot + tokens + .env → local, shared  │ │
+│  │   storage, optional rclone remote; 14-day retention)   ·   sshd (admin over adb forward) │ │
+│  └─────────────────────────────────────────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────┼──────────────────────────────────────────────────────┘
                                         ▼
-                      ┌──── Cloudflare edge · api.voltai.uz ─────┐
-                      │ TLS · Cache Rule 5m + stale-if-error 7d  │
+                      ┌──── Cloudflare edge · api.voltai.uz ─────┐  ⏳ zone not on Cloudflare yet
+                      │ TLS · Cache Rules on /api/stations*,     │     (Gate 2, §9)
+                      │   /api/plan*, /api/client-config         │
                       │ Load Balancer: pool A=phone, B=replica   │◀── cloud read-replica (Turso/libSQL,
                       └──────┬───────────────────────┬───────────┘     read-only, mirrors `stations`)
-                      (5)    ▼                       ▼   (6)            ⏳ NOT BUILT (2026-08-15) — §6
-          ┌ Expo mobile (Yandex map;              ┌ voltai.uz (Next.js / Vercel, UNCHANGED)
-          │ stationsClient.ts UNCHANGED;          │
-          │ AsyncStorage offline cache) ──────────┘
+                      (5)    ▼                       ▼   (6)            ⏳ NOT BUILT (2026-08-16) — §6
+          ┌ Expo mobile (Yandex map; stationsClient   ┌ voltai.uz (Next.js / Vercel; privacy page
+          │ 1000-row pages + /statuses poll; client-  │ rewritten 2026-08-16)
+          │ config gate; AsyncStorage offline cache) ─┘
 ```
 
 Two structural properties that de-risk everything else:
@@ -129,15 +142,17 @@ Two structural properties that de-risk everything else:
 1. **Nothing has to reach *in* to the phone.** The phone's IP, Wi-Fi reconnects, CGNAT, and lack of a
    public IP are all irrelevant — `cloudflared` dials *out* to Cloudflare and the tunnel is the only
    **external** ingress. No port-forwarding, no DDNS, no inbound firewall holes.
-   > ⏳ **Intended hardening, NOT in the code (2026-08-15):** this section used to claim "Node binds
-   > `127.0.0.1` only." It does not. `src/index.ts:13` is `app.listen(port, cb)` with **no host
-   > argument**, so Node binds all interfaces and anything on the phone's LAN can hit port 8080
-   > directly — including `/ingest`, bypassing the cloudflared ingress rules. Either change the call
-   > to `app.listen(port, "127.0.0.1")` (and put the tunnel in front of loopback) or accept the LAN
-   > exposure knowingly. The tunnel's outbound-only property above is unaffected either way.
-2. **Cloudflare's edge cache is the phone's shock absorber.** A Cache Rule on `/api/stations*`
-   collapses N clients to ~1 origin request per 5 minutes. On a single phone CPU this is **mandatory,
-   not an optimization.**
+   > ✅ **Built (2026-08-16):** Node binds **`127.0.0.1` by default** (`HOST` env, `src/index.ts`),
+   > so nothing on the phone's LAN can reach port 8080. On top of that `src/app.ts` refuses `/ingest`
+   > with a 404 for any request whose peer is not loopback or that carries `cf-connecting-ip`/`cf-ray`
+   > (came through the tunnel), and the JSON body parser is mounted only on `/ingest`. The
+   > cloudflared ingress rule (`(?i)^/ingest → 404`) is belt-and-braces, not the defence.
+2. **Cloudflare's edge cache is the phone's shock absorber.** Cache Rules on `/api/stations*`,
+   `/api/plan*` and `/api/client-config` collapse N clients to ~1 origin request per TTL (the origin
+   sends `s-maxage` 180 s / 30 s / 600 s and `stale-if-error`). On a single phone CPU this is
+   **mandatory, not an optimization** — and it must be an explicit rule, because Cloudflare treats
+   extensionless `application/json` as uncacheable by default (RUNBOOK §4). ⏳ Not created yet
+   (needs Gate 2).
 
 ---
 
@@ -151,8 +166,8 @@ Two structural properties that de-risk everything else:
 | ~~TLS capture path~~ | ⛔ **SUPERSEDED (2026-08-15)** — no capture path at all | Was: PCAPdroid VPNService → SOCKS5 → own `mitmdump` in Termux. Abandoned with Pillar B. The data path is now direct server-side HTTPS to each operator's own API from `scrapers/http/httpScraper.ts`. See `apps/api/docs/SCRAPERS.md`. |
 | ~~APK preparation~~ | ⛔ **SUPERSEDED (2026-08-15)** — APKs are read, not patched | Was: `apk-mitm` re-sign + user-CA patch, `reFlutter`/`objection` for Flutter/pinned apps. reFlutter crashed the app on Android 15. APKs are still pulled (`npm run gate:pull`) but only decompiled **statically** to extract endpoints. |
 | Tunnel | **Cloudflare Tunnel** (`pkg install cloudflared`, `edge-ip-version: 4`, `protocol: http2`) | Termux ships an official bionic build; the GitHub glibc binary won't run. Tailscale Funnel can't serve a custom domain; ngrok custom domains are paid + glibc. |
-| Resilience | **Cloud read-replica at launch** (Turso/libSQL) behind Cloudflare Load Balancer — ⏳ **NOT BUILT (2026-08-15)**, deferred (§6) | Converts a single-phone outage into "stale-by-one-cycle." The skeptic's top correction. |
-| Ports | **One port: 8080** (tunnelled). `/ingest` shares it. | There is no 8787 listener. `src/index.ts` opens a single `app.listen(port)` and `src/app.ts:86` mounts the ingest router on that same app; `INGEST_PORT` is read by no code. `/ingest` is kept off the internet by the cloudflared ingress rule `path: ^/ingest → http_status:404` plus the `x-ingest-token` check. ⏳ A second, loopback-only listener on **8787** remains the recommended hardening but is **NOT built** — and note the ingress rule is a case-sensitive regex while Express routing is not, so `/INGEST` still reaches the origin. |
+| Resilience | **Cloud read-replica at launch** (Turso/libSQL) behind Cloudflare Load Balancer — ⏳ **NOT BUILT (2026-08-16)**, deferred (§6) | Converts a single-phone outage into "stale-by-one-cycle." The skeptic's top correction. What *is* built for resilience: runit supervision + watchdog, Termux:Boot hook, stale-lock recovery, and the nightly encrypted backup with a proven restore (§5.6). |
+| Ports | **One port: 8080**, bound to **`127.0.0.1`** (tunnelled). `/ingest` shares it. | There is no 8787 listener and none is needed any more. `src/index.ts` opens a single `app.listen(port, host)` with `HOST` defaulting to loopback; `src/app.ts` mounts the ingest router on that same app behind a guard that 404s any non-loopback peer or any request carrying Cloudflare's `cf-connecting-ip`/`cf-ray` headers, then the `x-ingest-token` check (fails closed when unset). The cloudflared ingress rule is now `(?i)^/ingest → http_status:404` (case-insensitive) and is only belt-and-braces. ✅ Built 2026-08-16 — the former "loopback-only 8787 listener" recommendation is retired. |
 
 ---
 
@@ -252,8 +267,9 @@ on-device capture was dropped for **all six**, not 1–2. Off-device API scrapin
 | Pro-Tok | 🟡 wired, 0 rows |
 | Megawatt | ⛔ blocked by hardware attestation |
 
-Combined live (2026-08-15): **2,005 raw → 1,226 canonical** stations (tokbor 677, spectre 373,
-beon 89, k-watt 87).
+Combined live (measured 2026-08-15 on the dev box): **2,005 raw → 1,226 canonical** stations
+(tokbor 677, spectre 373, beon 89, k-watt 87). On the phone (2026-08-16): **~1,222 canonical**
+from the same four sources — the number drifts a little cycle to cycle.
 
 ### 5.2 ~~Capture loop (runtime, on the phone, no PC)~~ — SUPERSEDED, NEVER BUILT
 None of the mechanism below exists in the repo: there is no `src/scheduler/`, no `src/device/adb.ts`,
@@ -290,18 +306,28 @@ upsertRawStations()  →  raw_stations   →   mergeStations() INLINE at the end
   Still true as of 2026-08-15: the parser itself lives in `scrapers/apps/base.ts`, which is **not** on
   the Outstanding-cleanup list in §7, so deleting `run-app-scraper.ts` does not disturb this path —
   `src/routes/ingest.ts:2` reaches it through `appScraperConfigs`.
-- **Merge** (~~`node-cron */15`~~ — see the cadence bullet below) → `services/mergeService.ts`
-  **algorithm untouched** (already pure `geolib.distanceMeters` + `nameSimilarity`,
-  `similarity>=0.7 ? 80m : 40m`, same `sourcePriority`).
-  Only its two I/O lines change: `RawStationModel.find()` → `rawStationsRepository.all()`;
-  `deleteMany + insertMany` → `stationsRepository.replaceAll()` inside **one `BEGIN IMMEDIATE`
-  transaction** (fixes a real, currently-non-atomic wipe) ~~**with a row-count floor** (abort if
-  `merged < 0.5 × previous` so a bad capture can't blank a good dataset)~~.
-  - ✅ **`BEGIN IMMEDIATE` is implemented** (`src/repositories/stationRepo.ts:134`).
-  - ⏳ **The row-count floor is NOT implemented (2026-08-15)** — there is no comparison against a
-    previous count anywhere in `replaceAllStations()` or `mergeStations()`. Until it is built, the
-    only thing preventing a bad cycle from blanking the catalog is that `raw_stations` rows are
-    never pruned. See risk **R8**.
+- **Merge** (~~`node-cron */15`~~ — see the cadence bullet below) → `services/mergeService.ts`.
+  The core matching is unchanged (`geolib.distanceMeters` + name-token similarity,
+  `similarity>=0.7 ? 80m : 40m`, same `sourcePriority`, plus a spatial grid index so it is not
+  O(n²)); the I/O is `listAllRawStations()` → `replaceAllStations()` inside **one `BEGIN IMMEDIATE`
+  transaction**. **Changed 2026-08-16:**
+  - **Same-source sibling rows keep ALL their connectors.** Spectre emits one row per gun (K1/K2/K3)
+    and Tokbor one per post; those are distinct physical connectors and are all kept. Only rows
+    from a *different* source are treated as the same hardware and de-duplicated by
+    `type+power`. (Before this, a Spectre station with three guns showed one.)
+  - **Freshness policy:** raw rows older than `STATION_TTL_DAYS` (7) are ignored entirely;
+    connector statuses from raw rows older than `STATUS_MAX_AGE_SEC` (1 h) are served as
+    `unknown`, so a frozen "available" from a source whose token expired is never shown as
+    current. `updatedAt` on the wire is the newest contributing scrape time.
+  - Housekeeping after each cycle: raw rows unseen for `RAW_RETENTION_DAYS` (30) are deleted and
+    expired `route_cache` rows pruned.
+  - ✅ **`BEGIN IMMEDIATE` is implemented** (`src/repositories/stationRepo.ts`).
+  - ⏳ **The row-count floor is still NOT implemented (2026-08-16)** — no comparison against a
+    previous count anywhere. What limits the blast radius of a bad cycle instead: a source that
+    returns 0 parsed stations, a non-JSON body or a rejected token is recorded as a *failure* and
+    **nothing is upserted for it**, so its previous raw rows keep feeding the merge for up to
+    `STATION_TTL_DAYS`. A source that stays dead for 7 days does disappear from the map — by design.
+    See risk **R8**.
 - **Merge cadence, as actually wired:** the merge runs **inline at the end of every scrape cycle**
   (`src/index.ts:63`). The standalone `node-cron` merge (`MERGE_CRON`, default `*/15`) is explicitly
   **disabled** whenever `SCRAPE_ENABLED` is not `'false'` (`src/index.ts:130-139`); it exists only for
@@ -315,13 +341,13 @@ Contract reproduced in JS:
   exact `geolib.getDistance` → sort → `LIMIT 200`, emitting `distanceMeters` on each item.
 - **`/search`** ($text) → FTS5 `bm25(name×2, address)`; **`?q=`** on list → same.
 - **`_id` must stay 24-hex ObjectId-shaped** because the mobile offline cache keys on `String(id)`.
-  The **as-built** formula (`src/repositories/objectId.ts:17`) is
-  `sha1(primarySource | name.trim().toLowerCase() | lat.toFixed(4),lng.toFixed(4)).slice(0,24)` —
-  **not** `sha1(primarySource|externalId)`; `externalId` is not an input.
-  ⚠️ **Correction (2026-08-15):** this id is therefore **not stable across a priority takeover.**
-  `mergeService.ts:152-156` rewrites `primarySource`, `name` and the coordinates when a
-  higher-priority source wins a station, and any of those three changing (coordinates at the ~11 m
-  `toFixed(4)` bucket) yields a new `_id` — churning the mobile cache entry for that station.
+  The **as-built** formula (`src/repositories/objectId.ts`, changed 2026-08-16) is
+  `sha1(primarySource | "id:" + primaryExternalId).slice(0,24)` — the operator's own id of the raw
+  row that seeded the record. It no longer depends on the name or coordinates, so a Tokbor
+  re-enrichment or an operator renaming a site no longer churns the id. (Legacy rows without an
+  external id fall back to the old `name + toFixed(4)` key.) It still changes when a
+  higher-priority source takes over a station's identity (`primarySource` changes) — rare, and
+  the mobile cache simply re-keys that one entry.
 
 Constraints to design around (all verified from the wasm build): **no WAL** (`SQLITE_OS_OTHER=1`, no
 shared memory) → `journal_mode=TRUNCATE`, single process; `SQLITE_DQS=0` → single-quote all SQL string
@@ -340,13 +366,14 @@ run off-device** (laptop/CI) and push via `POST /ingest --remote`.
 **Consequence to state plainly:** the "single phone is the *entire* backend" claim is already softened —
 the phone is the *primary origin*; the two map-scraper sources and the cloud replica need an external machine.
 
-> ⏳ **NOT WIRED (2026-08-15) — the map scrapers never reach the phone.** The `--remote`/`POST /ingest`
-> hand-off above was designed but never built. `scrapers/maps/yandex.ts` and `scrapers/maps/google.ts`
-> still write **directly into MongoDB**: both wrap their run in `withDatabase` (`scrapers/utils/db.ts`
-> → `src/config/database.ts`, `mongodb://localhost:27017/voltai`) and `scrapers/maps/common.ts:17`
-> calls `RawStationModel.bulkWrite`. Nothing in `scrapers/maps/` (or `run-app-scraper.ts`) posts to
-> `/ingest`, so **those two sources currently never reach the phone's SQLite** and contribute nothing
-> to the 1,226 canonical stations. Either port them onto `POST /ingest` or drop them.
+> ⏳ **STILL NOT WIRED TO THE PHONE (2026-08-16).** The Mongoose path is gone: `scrapers/utils/db.ts`
+> now opens the embedded SQLite (`src/db/sqlite`) and `scrapers/maps/common.ts` upserts through
+> `rawStationRepo` — so `npm run scrape:yandex|google` writes into **whatever `SQLITE_PATH` the dev
+> box has**, not into the phone's database. Nothing in `scrapers/maps/` posts to `/ingest` (only
+> `npm run scrape:http -- --ingest` does), so those two sources still contribute nothing to the
+> phone's catalog. Either port them onto `POST /ingest` or drop them. `puppeteer`/`cheerio` are now
+> devDependencies and the root `.npmrc` skips the Chromium download, so they no longer endanger
+> the phone's `npm ci`.
 
 ### 5.6 Always-online hardening (necessary, not sufficient — see §1)
 Termux/Termux:Boot/Termux:API from **F-Droid** (never Play — signature mismatch). `nodejs-lts` (not
@@ -358,30 +385,46 @@ entries are moot — Pillar B is abandoned); disable phantom-process killing
 ~~**Prefer an Android 12–14 device.**~~ Keep it plugged in + "Stay awake while charging"; caseless on a
 heatsink; consider a smart-plug charge schedule (battery-swell mitigation).
 
-> ⚠️ **Accepted risk (2026-08-15) — the device is on Android 15.** The phone that exists is an
-> **ASUS Zenfone 10 (AI2302) running Android 15** (`docs/GATES.md:7`, `RUNBOOK.md:11-13`; the
-> Android-15/no-root half is also in `docs/SCRAPERS.md:7-8`), i.e. exactly the OS this
-> section and risk **R1** warn against. The 12–14 preference is not achievable without buying another
-> phone, so **R1's stated mitigation is not in force** and the risk is knowingly accepted. The
-> Android-15-specific mitigations that *are* available and must all be applied: phantom-process
-> killing turned off, battery usage set to **Unrestricted** for Termux, `termux-wake-lock` held from
-> boot, and a **scheduled nightly reboot** so a killed process cannot stay dead for a day. On top of
-> those, the external uptime check is what actually detects the failure. Naming a replacement
-> Android 12–14 device would retire this risk properly.
+> ⚠️ **Accepted risk — the device is on Android 15.** The phone in service is an **ASUS Zenfone 10
+> (AI2302) running Android 15**, i.e. exactly the OS this section and risk **R1** warn against. The
+> 12–14 preference is not achievable without buying another phone, so the risk is knowingly
+> accepted. **What is in force (applied 2026-08-16, via adb / on the phone):** phantom-process
+> killing off (`device_config … max_phantom_processes`, `settings_enable_monitor_phantom_procs
+> false`), `deviceidle whitelist +com.termux`, battery **Unrestricted**, `termux-wake-lock` held
+> from the boot hook and re-asserted by the watchdog every 2 min, runit restarting a dead
+> `voltai-api`, and the watchdog restarting it after 3 consecutive liveness misses. There is **no
+> scheduled nightly reboot** — the supervisor + watchdog replaced that idea, and a reboot is
+> actually harmful here: the phone has a **lock-screen PIN**, so Termux:Boot only fires after the
+> first unlock (RUNBOOK caveats). Setting Screen lock = None/Swipe on the server phone is an open
+> owner action. Android killing the *whole* Termux process is still only caught by an **external**
+> readiness monitor, which is not set up yet. Naming a replacement Android 12–14 device would
+> retire this risk properly.
 
 **Monitoring that matters:** `/api/health` returning `{status:"ok"}` proves *nothing* about data
-freshness. Add `/api/health/detail` with per-source `lastIngestAt`; external uptime check
-(UptimeRobot/BetterStack) + healthchecks.io dead-man's-switch on the merge cron + a staleness alarm
-(any source > 36 h) to Telegram via `termux-api`. Nightly `VACUUM INTO` → gzip → `rclone` → Cloudflare R2,
-14-day retention; **test-restore at least once**. `svlogd` log rotation (a full `/data` degrades the whole OS).
+freshness. ✅ Built: **`/api/health/ready`** (503 when the catalog is empty, the DB is not a real
+file, or the scrape scheduler is stale — point the external monitor here) and
+**`/api/health/detail`** with `build.commit`, `dbPath`, `dbFileBytes`, `stale`, per-source
+`sources.<name>.state` (`fresh|stale|never|no-login|disabled`) + `lastError`, and `auth.<name>`
+(`hasToken`, `expiresAt`, `daysLeft`, `lastRejectedAt`); the on-device watchdog logs readiness
+every 2 min; `svlogd` rotation (10 × 2 MB per service). ⏳ **Not built / not set up:** the external
+uptime check (UptimeRobot/BetterStack) on `/api/health/ready`, a healthchecks.io dead-man's
+switch, and Telegram alerts — until Gate 2 there is no public URL to point them at.
 
-> ⏳ **The nightly backup does NOT exist (2026-08-15).** `scripts/termux/` contains no backup script,
-> nothing anywhere runs `VACUUM INTO` or `rclone`, no cron/runit service invokes one, `BACKUP_REMOTE`
-> is not in `.env.example`, and `bootstrap.sh` does not even install the `sqlite` CLI the command
-> above needs — it only does `pkg install … rclone` (`bootstrap.sh:20`) and `mkdir ~/voltai/backups`
-> (`bootstrap.sh:39`). **Assume the phone's database is not backed up.** Building
-> `scripts/termux/backup.sh` plus its service entry is outstanding work — see the deploy steps in
-> [`apps/api/RUNBOOK.md`](apps/api/RUNBOOK.md).
+> ✅ **The nightly backup EXISTS and has been exercised (2026-08-16).** The API itself writes a
+> consistent `VACUUM INTO` snapshot daily at 02:30 (and once after boot) to
+> `<db dir>/snapshots/voltai-snapshot.sqlite` — in-process, because the `sqlite3` CLI's POSIX locks
+> and node-sqlite3-wasm's directory locks are invisible to each other, so hot-copying the live file
+> is unsafe. `scripts/termux/backup.sh` (runit `voltai-backup`, 03:00) packs that snapshot with
+> `auth-tokens.json`, `tokbor-details.json`, `.env`, `~/.cloudflared/*` and `rclone.conf` into an
+> **AES-256 encrypted** archive (`~/voltai/backups/voltai-<stamp>.tar.gz.enc` + `.sha256`), copies
+> it to shared storage `~/storage/shared/VoltAI-backups/` and, if `BACKUP_REMOTE` is set, to an
+> rclone remote; 14-day retention. `scripts/termux/restore.sh [--dry-run|--db-only]` verifies
+> checksums + `integrity_check`, stops the API, swaps files in (keeping `*.pre-restore-<stamp>`)
+> and checks `/api/health/ready`. **Both a backup and a restore were run successfully once on the
+> phone.** The passphrase is `~/voltai/backup.passphrase` (a copy is kept off the phone on the dev
+> box). ⏳ **Still open:** no rclone remote is configured, so archives exist only on the phone +
+> its shared storage — a lost phone still loses the backups. Configure `rclone config` +
+> `BACKUP_REMOTE` (RUNBOOK §2/§6).
 
 ---
 
@@ -415,9 +458,12 @@ rewrite `app.config.ts` key injection; `package.json` (`-react-native-maps`, `+e
 `+expo-dev-client`, SDK bumps); new `.env`, `eas.json`, `lib/maps/geo.ts`. Update stale
 `TECHNICAL_ARCHITECTURE.md` / `FEATURE_SPECIFICATIONS.md`.
 
-**API** — ✅ **new (built):** `src/db/{sqlite.ts,schema.ts,mappers.ts}`,
-`src/repositories/{rawStation,station,meta}.ts`, `src/routes/ingest.ts`, `scrapers/http/httpScraper.ts`,
-`scripts/termux/*`, `scripts/cloudflared/config.example.yml`, `RUNBOOK.md`.
+**API** — ✅ **new (built):** `src/env.ts` (dotenv + blank-means-unset helpers, imported first by
+every entrypoint), `src/version.ts` (+ `scripts/stamp-version.cjs` → `dist/version.json`),
+`src/db/{sqlite.ts,schema.ts,mappers.ts}`, `src/repositories/{rawStation,station,meta,objectId}.ts`,
+`src/routes/{ingest,clientConfig,plan}.ts`, `scrapers/http/httpScraper.ts`, `scrapers/auth/*`,
+`scripts/termux/{bootstrap,install-services,install-boot,boot,watchdog,backup,restore,lib}.sh`,
+`scripts/phone/deploy.sh`, `scripts/smoke.sh`, `scripts/cloudflared/config.example.yml`, `RUNBOOK.md`.
 ⛔ **new (never built, Pillar B):** `src/scheduler/cron.ts`, `device/{adb,uiFlow,captureRound,panGrid}.ts`,
 `capture/voltai_mitm.py`, `scrapers/apk/patch.ts`, `scripts/adb/pair.sh` — the scrape loop lives inline
 in `src/index.ts` instead.
@@ -426,63 +472,75 @@ in `src/index.ts` instead.
 > at runtime would break the built server. That matters directly for the ship-`dist/`-to-the-phone
 > model (§5.6) — do not "tidy" it back into a `.sql` file. Reason recorded at `src/db/schema.ts:1-15`.
 
-**Changed:** `routes/stations.ts` (imports + handler bodies, same shapes),
-`app.ts`/`index.ts` (import path only — both now pull `connectDatabase` from `src/db/sqlite`,
-`src/app.ts:7`), `mergeService.ts` (2 I/O lines), `package.json` (`+node-cron`,
-`+node-sqlite3-wasm`). **Unchanged:** `scrapers/apps/*`, `scrapers/utils/geo.ts`,
-`src/types/station.ts`.
-> ⏳ **`scrapers/proxy/mitmparser.ts` was never touched (2026-08-15).** The planned "split file-read
-> from parse" change belonged to the abandoned capture pillar (§5.2); the file is still exactly as
-> committed in `5e40206`. Its only importer is `scrapers/run-app-scraper.ts:7`, which is itself on
-> the Outstanding-cleanup list below — nothing the API process runs touches it.
->
-> ⏳ **`scrapers/utils/db.ts` was NOT repointed (2026-08-15).** It still imports
-> `connectDatabase`/`disconnectDatabase` from `src/config/database.ts` (Mongoose,
-> `mongodb://localhost:27017/voltai`) — which is why the map scrapers never reach the phone's
-> SQLite (§5.5). It is on the Outstanding-cleanup list below by way of `src/config/database.ts`.
+**Changed:** `routes/stations.ts` (SQLite handlers, hashed ETags so unicode `?q=` no longer 500s,
+`page`/`limit`/`radius` validated → 400, `limit` max 1000), `routes/plan.ts` (polyline validation
+before caching and on read, Central-Asia service bounding box → 400, param bounds → 400, breaker
+only on 5xx/timeouts, negative cache, per-IP 20/min → 429, real inflight shed → 503 + Retry-After,
+degraded "estimated" responses get a short cache policy and a distinct ETag, `waitMin`/`terminalMin`),
+`app.ts` (loopback-only `/ingest` guard, `/api/health/ready`, error handler that strips cache
+headers), `index.ts` (HOST bind, scrape loop failure semantics, daily snapshot, SIGTERM/SIGINT
+graceful close, unhandledRejection/uncaughtException handlers), `mergeService.ts` (see §5.3),
+`scrapers/apps/k-watt.ts` (pagination + per-connector OCPP status mapping), `scrapers/apps/spectre-energy.ts`
+(unmapped status ids → `unknown` with a one-time warning), `scrapers/http/httpScraper.ts`
+(non-JSON bodies are errors, `TokenRejectedError` on 401/403 ≠ "not logged in", bounded pagination),
+`scrapers/utils/db.ts` + `scrapers/maps/common.ts` (repointed from Mongoose to SQLite),
+`package.json` (`+node-cron`, `+node-sqlite3-wasm`, `+dotenv`; `mongoose`/`puppeteer`/`cheerio`/
+`string-similarity` moved to devDependencies). **Unchanged:** `scrapers/utils/geo.ts`, `src/types/station.ts`.
+> ℹ️ `scrapers/proxy/mitmparser.ts` is untouched and belongs to the abandoned capture pillar (§5.2).
+> Its only importer is `scrapers/run-app-scraper.ts` — nothing the API process runs touches it.
 
-#### ⏳ Outstanding cleanup — NOT DONE (verified 2026-08-15)
-An earlier version of this section listed the items below as **"Deleted:"** and as completed
-`package.json` changes. **None of it happened** — every file is still tracked on `main`
-(`git ls-files apps/api`) and the dependencies are still production dependencies. Treat this as a
-checklist, not a record:
+#### Outstanding cleanup — status 2026-08-16
+An earlier version of this section listed everything below as "Deleted:" when none of it was.
+Re-verified against `git ls-files apps/api`:
 
-- [ ] `src/models/Station.ts`, `src/models/RawStation.ts`
-- [ ] `src/config/database.ts`
-- [ ] `scrapers/appium/{loginFlow,setup}.ts`
-- [ ] `scrapers/run-app-scraper.ts` (and the `scrape:app` script that points at it)
-- [ ] all 10 `.github/workflows-disabled/*.yml`
-- [ ] `apps/api/vercel.json` — **still live config.** It is what keeps deploying the serverless
-      function currently answering `api.voltai.uz` with HTTP 500. Deletion is **outstanding** and is
-      an owner decision, not a doc fix.
-- [ ] `apps/api/api/index.ts` — same; deleting it also means dropping `"api/**/*.ts"` from the
-      `include` array in `apps/api/tsconfig.json`. **Outstanding.**
-- [ ] `package.json`: drop `mongoose` (`:37`), and move `puppeteer` (`:40`) and `cheerio` (`:32`) out
-      of `dependencies`. ⚠️ **This one has teeth:** `bootstrap.sh` runs
-      `npm install --no-workspaces --omit=dev` on the phone, so puppeteer's postinstall downloads a
-      glibc Chromium that cannot run under bionic — the most likely cause of a failed first bootstrap.
-      (`string-similarity` at `:41` is imported nowhere and is also a candidate.)
+- [x] `src/models/Station.ts`, `src/models/RawStation.ts` — **deleted 2026-08-16**
+- [x] `src/config/database.ts` (Mongoose) — **deleted 2026-08-16**
+- [x] `apps/api/vercel.json` — **deleted 2026-08-16.** Nothing will redeploy the Vercel function
+      again; the record still pointing at it is Gate 2's problem (§9).
+- [x] `apps/api/api/index.ts` (Vercel entry) — **deleted 2026-08-16**; `tsconfig.json` no longer
+      includes `api/**`.
+- [x] `package.json`: `mongoose`, `puppeteer`, `cheerio`, `string-similarity` are
+      **devDependencies** now, and the root `.npmrc` sets `puppeteer_skip_download=true`. The phone
+      runs `npm ci -w voltai-api --omit=dev --ignore-scripts` (`deploy.sh`), so none of them is
+      installed there.
+- [ ] `scrapers/appium/{loginFlow,setup}.ts` — still tracked (dead)
+- [ ] `scrapers/run-app-scraper.ts` (and the `scrape:app` script) — still tracked; compiles against
+      SQLite now but drives the abandoned Appium/APKPure/GrizzlySMS flow. Do not use.
+- [ ] all 10 `.github/workflows-disabled/*.yml` — still tracked (dead)
+- [ ] `scrapers/proxy/mitmparser.ts` — still tracked (dead)
 
-**Web** — unchanged (stays on Vercel); only `CORS_ORIGINS` moves to the phone's env.
+**Web** — unchanged (stays on Vercel); only `CORS_ORIGINS` moves to the phone's env. The privacy
+policy text (`apps/web/src/i18n/dictionary.ts` → `/{uz,ru,en}/privacy`) was rewritten 2026-08-16
+to match `apps/mobile/store/privacy-policy.html`.
 
 ### Env deltas
-- **API adds (in `.env.example` today):** `INGEST_TOKEN`, `SQLITE_PATH`, `AUTH_TOKENS_PATH`,
-  `TOKBOR_DETAILS_PATH`, `MERGE_CRON`, `SCRAPE_ENABLED`, `TZ=Asia/Tashkent`, plus
-  `SCRAPE_MIN_MINUTES` / `SCRAPE_MAX_MINUTES` (the real scrape knobs — there is no `SCRAPE_CRON`
-  anywhere in the code). **Removes:** `MONGODB_URI`.
-- ~~`INGEST_PORT=8787`~~ — **struck (2026-08-15):** read by no code and absent from `.env.example`.
-  It only ever made sense with the second loopback listener, which is not built (§3, Ports).
-- ~~`CAPTURE_CRON`, `PCAPDROID_API_KEY`, `MITM_SOCKS_PORT`~~ — **struck (2026-08-15):** they belong to
-  the abandoned capture pillar (§5.2).
-- `BACKUP_REMOTE` — ⏳ still unimplemented; see the backup note in §5.6.
-- **Mobile adds:** `YANDEX_MAPKIT_API_KEY`. **Removes:** `GOOGLE_MAPS_API_KEY`.
+All of these are documented, with defaults, in [`apps/api/.env.example`](apps/api/.env.example);
+**blank values count as unset** everywhere (`src/env.ts`) — the phone once ran on a temp DB because
+`SQLITE_PATH=` was blank and code used `??`.
+- **API adds:** `HOST` (default `127.0.0.1`), `INGEST_TOKEN`, `SQLITE_PATH`, `AUTH_TOKENS_PATH`,
+  `TOKBOR_DETAILS_PATH`, `MERGE_CRON`, `SCRAPE_ENABLED`, `SCRAPE_MIN_MINUTES` / `SCRAPE_MAX_MINUTES`
+  (the real scrape knobs — there is no `SCRAPE_CRON` anywhere in the code), `TZ=Asia/Tashkent`,
+  `STATION_TTL_DAYS` / `STATUS_MAX_AGE_SEC` / `RAW_RETENTION_DAYS`, `STATIONS_STALE_AFTER_SEC`,
+  `STATIONS_CACHE_*` / `STATUSES_CACHE_*`, `SNAPSHOT_ENABLED|DIR|HOUR|MINUTE`, `BACKUP_REMOTE` /
+  `BACKUP_RETENTION_DAYS`, `MYTAXI_API_KEY|BASE_URL|TIMEOUT_MS|RATE_PER_MIN|RATE_PER_DAY`,
+  `PLAN_RATE_PER_MIN`, `PLAN_MAX_INFLIGHT`, `PLAN_*CACHE_*`, `CLIENT_MIN_VERSION` /
+  `CLIENT_MESSAGE` / `CLIENT_MAINTENANCE`, `PUBLIC_HEALTH_URL` (watchdog). **Removes:** `MONGODB_URI`.
+- ~~`INGEST_PORT=8787`~~ — **struck:** read by no code; the loopback-only listener idea is retired
+  (the single listener binds loopback itself, §3 Ports).
+- ~~`CAPTURE_CRON`, `PCAPDROID_API_KEY`, `MITM_SOCKS_PORT`~~ — **struck:** abandoned capture pillar (§5.2).
+- **Mobile adds:** `YANDEX_MAPKIT_API_KEY` (+ `EXPO_PUBLIC_YANDEX_MAPKIT_API_KEY` dev convenience;
+  EAS builds other than `development` fail fast without one), `EXPO_PUBLIC_API_BASE_URL` (an
+  `http://` value is what enables Android cleartext). **Removes:** `GOOGLE_MAPS_API_KEY`,
+  `EXPO_PUBLIC_MYTAXI_API_KEY` (removed from `.env` and from the EAS environments 2026-08-16 —
+  routing is server-side only).
 
 ---
 
 ## 8. Phased rollout (each phase verifiable, rollback-safe)
 
-**Where we are (2026-08-15): phases 1-3 are DONE; Phase 4 was replaced; Phase 0's DNS half plus
-phases 5-7 are what's left.**
+**Where we are (2026-08-16): phases 1-3 are DONE; Phase 4 was replaced; Phase 5 is DONE on the
+phone except the tunnel/staging soak; Phase 0's DNS half, Phase 6 and the rest of Phase 7 are
+what's left.**
 
 - **Phase 0 — safety net:** 🟡 **partly moot.** ~~`mongodump` Atlas → R2 (**seed data for SQLite**)~~ —
   Atlas is retired and is no longer a seed source; the API self-populates, firing a
@@ -499,17 +557,23 @@ phases 5-7 are what's left.**
 - ~~**Phase 4 — phone capture** writing to the phone's SQLite (not yet public). Gate §9 (test all 6
   APKs).~~ ⛔ **REPLACED (2026-08-15)** — the capture pillar was abandoned (§5.2). Its replacement,
   in-process HTTP scraping into the phone's SQLite, is built and running.
-- **Phase 5 — tunnel on a *staging* hostname** `api2.voltai.uz`; enable Boot/watchdog/backup; **reboot
-  and confirm zero-touch recovery**; 72 h soak. ⏳ **NOT STARTED** (and the backup script does not yet
-  exist — §5.6). Steps: [`apps/api/RUNBOOK.md`](apps/api/RUNBOOK.md).
-- **Phase 6 — DNS cutover** (Cache Rule first, then flip CNAME → `<uuid>.cfargotunnel.com`, proxied).
+- **Phase 5 — supervised phone + tunnel on a *staging* hostname; reboot and confirm zero-touch
+  recovery; 72 h soak.** 🟡 **MOSTLY DONE (2026-08-16):** bootstrap, `deploy.sh`, runit services
+  (`voltai-api`, `voltai-watchdog`, `voltai-backup`, `sshd`), Termux:Boot hook, Android 15
+  phantom-process/deviceidle settings, backup + restore drill, and `smoke.sh` all ran on the real
+  phone. **Not done:** the tunnel (no Cloudflare token yet — needs Gate 2 for a named hostname), the
+  72 h soak, and the **zero-touch reboot test is only half-passed**: with the lock-screen PIN still
+  set, the API comes back only after the first unlock. Steps: [`apps/api/RUNBOOK.md`](apps/api/RUNBOOK.md).
+- **Phase 6 — DNS cutover** (Cache Rules first, then flip CNAME → `<uuid>.cfargotunnel.com`, proxied).
   ⏳ **BLOCKED on Gate 2** (§9). Rollback is no longer "revert one CNAME to a warm Vercel + Atlas" —
   both are retired and the Vercel function is already returning 500, so **there is nothing to roll
   back to.** Get Phase 5's staging soak right instead.
 - **Phase 6b — stand up the cloud replica + Load Balancer** (§6) before declaring production.
   ⏳ **NOT BUILT**, deferred by owner decision.
 - **Phase 7 — decommission** Vercel/Atlas, delete dead files (the §7 Outstanding-cleanup checklist),
-  add root `ci.yml`. ⏳ **NOT STARTED.**
+  add root `ci.yml`. 🟡 **PARTLY DONE (2026-08-16):** the Vercel entry, `vercel.json`, the Mongoose
+  models/config are deleted and the heavy deps are dev-only; the Appium/run-app-scraper/
+  workflows-disabled leftovers and a root `ci.yml` remain.
 
 ---
 
@@ -518,15 +582,19 @@ phases 5-7 are what's left.**
 *(Rewritten 2026-08-15. This section used to read "Two hard gates — clear BEFORE writing code." The
 code is written and typechecks, and Gate 1 has been answered, so neither premise holds any more.)*
 
-### Gate 2 — DNS · 🔴 **OPEN. The only thing blocking launch.**
+### Gate 2 — DNS · 🔴 **OPEN. The only thing blocking a public launch.**
 **Confirm the `voltai.uz` DNS zone is on Cloudflare nameservers.** A proxied `cfargotunnel` CNAME for
-`api.voltai.uz` requires it.
+`api.voltai.uz` requires it. The backend itself is already running on the phone (status table).
 
-**Measured 2026-08-15:**
+**Measured 2026-08-16 (unchanged since 2026-08-05):**
 - `voltai.uz` nameservers are still `rdns1/2/3.ahost.uz` — **not Cloudflare**.
 - `api.voltai.uz` is still a CNAME to `…vercel-dns-017.com`, returning HTTP 500
-  `FUNCTION_INVOCATION_FAILED`. That failure is **structural, not a bug to fix**: the app now needs a
-  writable filesystem and a long-lived process, which a Vercel function cannot give it.
+  `FUNCTION_INVOCATION_FAILED`. That failure is **structural, not a bug to fix**: the app needs a
+  writable filesystem and a long-lived process, which a Vercel function cannot give it — and its
+  entrypoint has since been deleted from the repo.
+- Until this gate and the tunnel (RUNBOOK §4) are done, the API is reachable only on the phone
+  (`http://127.0.0.1:8080`, e.g. from the app installed on the same phone or the `development`
+  EAS profile) or via `adb forward`.
 
 Steps: [`apps/api/docs/GATES.md`](apps/api/docs/GATES.md) §Gate 2. Deployment that follows it:
 [`apps/api/RUNBOOK.md`](apps/api/RUNBOOK.md).
@@ -548,16 +616,16 @@ and screened, now for static endpoint extraction.
 
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
-| R1 | Android 15+ kills unattended Termux despite all mitigations | 🔴 | ⚠️ **Mitigation NOT in force (2026-08-15).** The device is an ASUS Zenfone 10 on **Android 15** — the "Android 12–14 device" mitigation is unavailable without buying another phone, so this risk is **knowingly accepted**. In force instead: phantom-process killing off, Unrestricted battery, `termux-wake-lock`, nightly scheduled reboot, external uptime alert. Cloud replica (§6) ⏳ not built. See §5.6. |
+| R1 | Android 15+ kills unattended Termux despite all mitigations | 🔴 | ⚠️ **Knowingly accepted (2026-08-16).** The device is an ASUS Zenfone 10 on **Android 15** — the "Android 12–14 device" mitigation is unavailable without buying another phone. In force: phantom-process killing off + deviceidle whitelist (applied via adb), Unrestricted battery, `termux-wake-lock` from the boot hook and re-asserted by the watchdog, runit + watchdog restarts. **No nightly reboot** (see §5.6 — a reboot with the lock-screen PIN set needs a human). ⏳ Not yet: external readiness monitor on `/api/health/ready` (the only thing that catches a whole-process kill), Screen lock = None on the server phone. Cloud replica (§6) ⏳ not built. |
 | R2 | Charger apps pin certs / are Flutter / enforce Play Integrity | 🔴 | ✅ **Materialized, then routed around.** Gate 1 confirmed it (§9). No longer mitigated by reFlutter/objection — the whole capture path was dropped for off-device API scraping (`docs/SCRAPERS.md`). Residual: Megawatt stays ⛔ blocked by hardware attestation. |
 | R3 | ~~Wireless-Debugging adb port randomizes on reboot~~ | ⚪ | **Moot (2026-08-15)** — nothing uses adb at runtime; capture pillar abandoned. |
-| R4 | ~~Hard-coded pixel taps break on app UI updates, silently~~ | 🟠 | **Restated:** no pixel taps exist, but the equivalent risk is live — an operator changing its HTTP API shape, or a login token expiring, fails silently. Mitigation unchanged: per-source `lastIngestAt` staleness alarms (`/api/health/detail`). Note `stale` alone will **not** catch it: `lastScrapeAt` is stamped every cycle even when every source failed. |
-| R5 | Single phone = SPOF | 🟠 | ⏳ **Currently unmitigated.** Nightly R2 backup does **not exist** (§5.6); cold-spare phone not provisioned; cloud replica not built (§6). |
+| R4 | ~~Hard-coded pixel taps break on app UI updates, silently~~ | 🟠 | **Restated:** no pixel taps exist, but the equivalent risk is live — an operator changing its HTTP API shape, or a login token expiring. ✅ It no longer fails *silently* (2026-08-16): 0 parsed stations, a non-JSON body and a rejected token (401/403) are all recorded as failures (`lastError`/`lastErrorAt`), `/api/health/detail` reports per-source `state` (`fresh|stale|never|no-login|disabled`) and `auth.<name>.daysLeft`/`lastRejectedAt`, and stale statuses are downgraded to `unknown` after 1 h. Note `stale` alone will **not** catch it: `lastScrapeAt` is stamped every cycle even when every source failed — alert on `sources.*.stale`. ⏳ Nobody is alerted yet (no external monitor). |
+| R5 | Single phone = SPOF | 🟠 | 🟡 **Partly mitigated (2026-08-16).** Nightly encrypted backup + proven restore exist (§5.6), so a dead phone can be rebuilt on another one from an archive. ⏳ Archives live only on the phone + its shared storage until an rclone remote is configured (`BACKUP_REMOTE`); cold-spare phone not provisioned; cloud replica not built (§6). |
 | R6 | `better-sqlite3` won't build on Termux | 🟠 | ✅ **Avoided** — `node-sqlite3-wasm` |
 | R7 | Battery swelling from permanent 100 % charge | 🟡 | Smart-plug schedule; caseless; sacrificial/bench-PSU device |
-| R8 | Bad scrape cycle wipes canonical `stations` | 🟡 | ✅ `BEGIN IMMEDIATE` implemented (`stationRepo.ts:134`); ⏳ **row-count floor NOT implemented** — see §5.3. R8 is currently mitigated only by the fact that `raw_stations` rows are never deleted. |
-| R9 | Phone CPU is the whole capacity plane | 🟡 | Cloudflare Cache Rule on `/api/stations*` (mandatory) — ⏳ not yet created; see [`apps/api/RUNBOOK.md`](apps/api/RUNBOOK.md) §4. |
-| R10 | Node binds all interfaces, so the LAN can reach `/ingest` directly | 🟡 | ⏳ **Open (2026-08-15).** `src/index.ts:13` passes no host to `app.listen`. Only `INGEST_TOKEN` protects it from the LAN; the cloudflared `^/ingest` 404 rule covers the tunnel only (and is case-sensitive). See §2, property 1. |
+| R8 | Bad scrape cycle wipes canonical `stations` | 🟡 | ✅ `BEGIN IMMEDIATE` implemented (`stationRepo.ts`); ✅ a failed/empty/non-JSON/token-rejected source upserts nothing, so its previous rows keep feeding the merge for `STATION_TTL_DAYS` (7); ⏳ **row-count floor NOT implemented** — see §5.3. Note raw rows are now pruned after `RAW_RETENTION_DAYS` (30) unseen, so "never deleted" is no longer the safety net. |
+| R9 | Phone CPU is the whole capacity plane | 🟡 | Cloudflare Cache Rules on `/api/stations*`, `/api/plan*`, `/api/client-config` (mandatory) — ⏳ not yet created (needs Gate 2); see [`apps/api/RUNBOOK.md`](apps/api/RUNBOOK.md) §4. In code: `/api/plan` per-IP limiter (429), inflight shed (503), 90-day route cache; the catalog/status feeds send `Cache-Control` + ETags and the app fetches the catalog in 1000-row pages with conditional GETs. |
+| R10 | ~~Node binds all interfaces, so the LAN can reach `/ingest` directly~~ | ⚪ | ✅ **Closed (2026-08-16).** `HOST` defaults to `127.0.0.1`; `/ingest` is additionally refused for any non-loopback peer or any request that came through the tunnel (`cf-connecting-ip`/`cf-ray`), then token-checked; the ingress rule is now case-insensitive. See §2, property 1 and §3 Ports. |
 
 ---
 

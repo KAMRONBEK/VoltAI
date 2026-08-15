@@ -144,7 +144,11 @@ export default function PlanResultsScreen() {
   const error = inputError ?? current?.error ?? null;
   /** Failures no amount of retrying fixes: the car itself is the problem. */
   const garageError =
-    error?.reason === 'no-car' || error?.reason === 'plug-required' || error?.reason === 'car-changed';
+    error?.reason === 'no-car' ||
+    error?.reason === 'plug-required' ||
+    error?.reason === 'car-changed' ||
+    // `invalid-range`, `invalid-dcKw`, `invalid-consWhKm`, …: a saved figure the server refused.
+    (error?.reason.startsWith('invalid-') ?? false);
 
   useEffect(() => {
     let cancelled = false;
@@ -191,9 +195,9 @@ export default function PlanResultsScreen() {
 
         // A trip already under way must survive losing signal. Fall back to the copy saved the
         // last time this exact trip was planned — labelled as saved, never dressed up as live.
-        // `bad-request` is excluded on purpose: the server rejecting the query means the saved
-        // answer is about a question we now know we asked wrongly.
-        const reusable = pe?.reason !== 'bad-request';
+        // Every 400 is excluded on purpose: the server rejecting the query means the saved answer
+        // is about a question we now know we asked wrongly.
+        const reusable = pe?.httpStatus !== 400;
         const saved = reusable ? await loadSavedPlan(id).catch(() => null) : null;
         if (cancelled) return;
 
@@ -420,6 +424,8 @@ export default function PlanResultsScreen() {
             <ThemedText style={[styles.caption, { color: c.textMuted }]}>
               {formatDuration(option.driveMin)} driving ·{' '}
               {formatDuration(option.chargeMin + option.plugMin)} charging
+              {option.waitMin ? ` · ${formatDuration(option.waitMin)} queueing` : ''}
+              {option.terminalMin ? ` · ${formatDuration(option.terminalMin)} start/finish` : ''}
             </ThemedText>
 
             {/* Honesty chips: never let an estimate look like a measurement. */}
@@ -630,7 +636,8 @@ function StopDetail({
         return;
       }
 
-      const label = encodeURIComponent(stop.name);
+      // Parentheses would close the `geo:` label early; `encodeURIComponent` leaves them as-is.
+      const label = encodeURIComponent(stop.name).replace(/[()]/g, (ch) => '%' + ch.charCodeAt(0).toString(16));
       const url =
         Platform.OS === 'ios'
           ? `http://maps.apple.com/?ll=${stop.lat},${stop.lng}&q=${label}`

@@ -61,9 +61,19 @@ export default function CarEditScreen() {
   // A plug-in hybrid's advertised "range" is mostly petrol, so deriving a battery from it produces
   // a fictitious pack and a plan with no charging stops at all.
   const looksLikeHybrid = /chazor|dm-?i|phev|plug-?in hybrid/i.test(label);
-  const rangeImplausible = rangeKm > 700;
+  // Only an *observed* figure over 700 km is suspect: no production EV really does that, so the
+  // driver has almost certainly typed the brochure number. A spec-sheet entry of 700+ is a real
+  // thing (it gets scaled down below) and must not trip the same guard.
+  const rangeImplausible = rangeSource === 'observed' && rangeKm > 700;
 
   const spec = derivedSpec({ rangeKm, rangeSource, consWhKm, dcPeakKw });
+  // The planner accepts 50–1200 km of real-world range — same bounds as the API, applied to the
+  // derived figure so a sticker entry is judged after the ×0.72, not before.
+  const realRangeOutOfBounds = spec.realRangeKm < 50 || spec.realRangeKm > 1200;
+  // The two "Details" knobs share the planner's own bounds (`KNOB_LIMITS` on the API), so a figure
+  // the server would reject with a 400 never gets saved in the first place.
+  const dcKwOutOfBounds = dcPeakKw < 10 || dcPeakKw > 1000;
+  const consOutOfBounds = consWhKm < 80 || consWhKm > 500;
 
   const problem = !label.trim()
     ? 'Give the car a name'
@@ -73,9 +83,15 @@ export default function CarEditScreen() {
         ? 'This looks like a plug-in hybrid — only fully electric cars can be planned'
         : rangeImplausible
           ? 'That range looks like a spec-sheet figure — switch to “Spec sheet” below'
-          : !plug
-            ? 'Choose the connector your car uses'
-            : null;
+          : realRangeOutOfBounds
+            ? `Real range works out to ${spec.realRangeKm} km — the planner needs 50–1200 km`
+            : dcKwOutOfBounds
+              ? 'Fastest charging speed must be 10–1000 kW'
+              : consOutOfBounds
+                ? 'Energy use must be 80–500 Wh/km'
+                : !plug
+                  ? 'Choose the connector your car uses'
+                  : null;
 
   const onSave = () => {
     if (problem || !plug) return;

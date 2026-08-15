@@ -1,8 +1,7 @@
-import dotenv from "dotenv";
-import { connectDatabase, disconnectDatabase } from "../../src/config/database";
+import "../../src/env";
+import { connectDatabase, disconnectDatabase } from "../../src/db/sqlite";
 
-dotenv.config();
-
+/** Open the embedded SQLite DB around a CLI task (dev-box scrapers), closing it cleanly after. */
 export async function withDatabase<T>(run: () => Promise<T>): Promise<T> {
   await connectDatabase();
   try {

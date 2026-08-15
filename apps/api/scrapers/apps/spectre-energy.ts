@@ -13,13 +13,16 @@ import type { Connector, RawStationInput } from "../../src/types/station";
 
 const API_BASE = "https://api.spectre-energy.uz";
 
-// status_id observed in the wild: 1 (most rows), 4, 8. We keep the raw id in
-// rawData and expose a conservative label; unknown ids fall through to status-<id>.
+// status_id observed in the wild: 1 (most rows), 4, 8, and occasionally 10 (meaning not yet
+// confirmed against the app — a handful of guns). We keep the raw id in rawData and expose a
+// conservative label; unmapped ids are reported as "unknown" (never as a fake "available") and
+// logged once per scrape so a new code is noticed rather than silently mis-shown.
 const STATUS_LABELS: Record<number, string> = {
   1: "available",
   4: "maintenance",
   8: "unavailable"
 };
+const warnedStatusIds = new Set<number>();
 
 interface SpectreStatusRow {
   id?: string;
@@ -33,7 +36,14 @@ function statusLabel(id: unknown): string | undefined {
   if (typeof id !== "number") {
     return undefined;
   }
-  return STATUS_LABELS[id] ?? `status-${id}`;
+  const label = STATUS_LABELS[id];
+  if (label) return label;
+  if (!warnedStatusIds.has(id)) {
+    warnedStatusIds.add(id);
+    // eslint-disable-next-line no-console
+    console.warn(`[spectre-energy] unmapped status_id ${id} — reported as unknown`);
+  }
+  return "unknown";
 }
 
 /** Drop the trailing connector marker ("… K1"/"… К2") so K1/K2 share a station name. */

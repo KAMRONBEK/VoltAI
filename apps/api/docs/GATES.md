@@ -1,7 +1,8 @@
 # VoltAI — Remaining launch gate: DNS
 
-> **Read this first (2026-08-15).** The backend is already written — this is no longer a
-> "before you write code" checklist.
+> **Read this first (2026-08-16).** The backend is written **and running on the phone** (see
+> [`../RUNBOOK.md`](../RUNBOOK.md) status) — this is no longer a "before you write code" checklist,
+> it is the one owner action between a working phone and a public `https://api.voltai.uz`.
 >
 > - **Gate 1 — TLS interception: RUN 2026-08-06, FAILED as designed, and SUPERSEDED.** The capture
 >   phone is an ASUS Zenfone 10 (AI2302) on **Android 15, no root**, and the operator apps are
@@ -11,8 +12,10 @@
 >   [`SCRAPERS.md`](SCRAPERS.md). Everything below the Gate 1 heading is kept **for history only**;
 >   the `gate:pull` / `gate:screen` scripts documented there are still live, because that is how APKs
 >   are pulled and screened for endpoint extraction.
-> - **Gate 2 — DNS/Cloudflare: still OPEN, and now the only gate.** Can `api.voltai.uz` be served
->   from the phone through a tunnel?
+> - **Gate 2 — DNS/Cloudflare: still OPEN (re-verified 2026-08-16), and now the only gate.** Can
+>   `api.voltai.uz` be served from the phone through a tunnel? Until it clears (and the tunnel in
+>   RUNBOOK §4 is configured on top of it), the API is reachable only on the phone itself
+>   (`http://127.0.0.1:8080`) or over `adb forward`.
 
 See [`../../../ARCHITECTURE.md`](../../../ARCHITECTURE.md) §9 for why, and
 [`../RUNBOOK.md`](../RUNBOOK.md) for how the phone is deployed once this gate clears.
@@ -21,11 +24,16 @@ See [`../../../ARCHITECTURE.md`](../../../ARCHITECTURE.md) §9 for why, and
 
 ## Gate 2 — Move `voltai.uz` DNS to Cloudflare  *(you must do this; ~15 min + propagation)*
 
-**Current state (re-verified live 2026-08-15 — unchanged since 2026-08-05):**
+**Current state (re-verified live 2026-08-16 — unchanged since 2026-08-05):**
 - `voltai.uz` nameservers = `rdns1/2/3.ahost.uz` (NOT Cloudflare).
 - `api.voltai.uz` → still a CNAME to Vercel (`1ff6f9e69f1bd742.vercel-dns-017.com`), returning
-  **HTTP 500 `FUNCTION_INVOCATION_FAILED`**. That is structural, not a bug to fix: the API now needs
-  a writable filesystem and a long-lived process, which a Vercel function cannot give it.
+  **HTTP 500 `FUNCTION_INVOCATION_FAILED`**. That is structural, not a bug to fix: the API needs a
+  writable filesystem and a long-lived process, which a Vercel function cannot give it. The Vercel
+  entrypoint (`apps/api/api/index.ts`, `vercel.json`) was deleted from the repo on 2026-08-16, so
+  that function will never be redeployed; the DNS record simply needs to move.
+- The origin that will replace it is already up: the API runs supervised on the ASUS Zenfone 10
+  (runit + Termux:Boot, real SQLite DB, ~1,222 stations, backup drill done) and answers
+  `/api/health/ready` with 200 on `127.0.0.1:8080`.
 
 A Cloudflare **named tunnel** can only publish `api.voltai.uz` if the **zone lives on Cloudflare**.
 Moving nameservers moves the *whole* zone — but the website stays on Vercel; Cloudflare just becomes
@@ -62,9 +70,11 @@ the DNS host. Steps:
 6. Sanity: `nslookup -type=NS voltai.uz` returns the Cloudflare nameservers; the website still loads;
    send yourself a test email to confirm SPF/DKIM/DMARC still pass.
 
-> The tunnel itself (`cloudflared tunnel …` + the Cache Rule on `/api/stations*`) is set up **later, on
-> the phone** — see [`../RUNBOOK.md`](../RUNBOOK.md) §4. It will replace only the `api.voltai.uz`
-> record with the tunnel CNAME; the Vercel website records are untouched.
+> The tunnel itself (a remotely-managed tunnel token or `cloudflared tunnel …`, plus the Cache Rules
+> on `/api/stations*`, `/api/plan*`, `/api/client-config`) is set up **afterwards, on the phone** —
+> see [`../RUNBOOK.md`](../RUNBOOK.md) §4. The `cloudflared` runit service already exists there and
+> stays down until `~/.cloudflared/token` or `config.yml` appears. It will replace only the
+> `api.voltai.uz` record with the tunnel CNAME; the Vercel website records are untouched.
 
 **Don't want to move DNS?** Then the alternatives are ngrok (paid custom domain) or a small VPS relay —
 both discussed in `ARCHITECTURE.md` §3. Cloudflare is the free, cleanest path.
@@ -161,7 +171,7 @@ walled by hardware attestation rather than by TLS at all. The station URLs above
 
 **What replaced it:** the API calls each of those URLs itself, in-process, with no phone in the
 request path. Live status, auth recipes and current station counts all live in
-[`SCRAPERS.md`](SCRAPERS.md) — as of 2026-08-15: Tokbor ✅, Spectre ✅, K-Watt ✅, Beon ✅
-(1,226 canonical stations), Pro-Tok 🟡 pending a one-time OTP login, Megawatt ⛔ blocked by hardware
-attestation. The `scrapers/maps/{yandex,google}.ts` map scrapers survive as an off-device fallback
-only, not as the primary path.
+[`SCRAPERS.md`](SCRAPERS.md) — as of 2026-08-16, running on the phone: Tokbor ✅, Spectre ✅,
+K-Watt ✅, Beon ✅ (~1,222 canonical stations), Pro-Tok 🟡 pending a one-time OTP login, Megawatt ⛔
+blocked by hardware attestation. The `scrapers/maps/{yandex,google}.ts` map scrapers survive as a
+dev-box-only tool, not wired to the phone.

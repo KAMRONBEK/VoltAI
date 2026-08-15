@@ -1,5 +1,5 @@
 import axios from "axios";
-import dotenv from "dotenv";
+import "../../src/env";
 import { appScraperConfigs } from "../apps";
 import {
   fetchSourcePayloads,
@@ -7,7 +7,6 @@ import {
   scrapeHttpSource
 } from "./httpScraper";
 
-dotenv.config();
 
 /**
  * CLI for the off-device HTTP scrapers.

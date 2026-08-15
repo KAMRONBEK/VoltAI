@@ -22,7 +22,7 @@ export function listStations(opts: { page: number; limit: number; q?: string }):
       `SELECT s.* FROM stations_fts f
          JOIN stations s ON s.rowid = f.rowid
         WHERE stations_fts MATCH ?
-        ORDER BY s.updated_at DESC
+        ORDER BY s.updated_at DESC, s._id
         LIMIT ? OFFSET ?`,
       [match, limit, offset]
     ) as Record<string, any>[];
@@ -34,7 +34,7 @@ export function listStations(opts: { page: number; limit: number; q?: string }):
   }
 
   const items = db.all(
-    `SELECT * FROM stations ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+    `SELECT * FROM stations ORDER BY updated_at DESC, _id LIMIT ? OFFSET ?`,
     [limit, offset]
   ) as Record<string, any>[];
   const totalRow = db.get(`SELECT COUNT(*) AS n FROM stations`) as { n: number } | null;
@@ -136,7 +136,7 @@ export function replaceAllStations(stations: CanonicalStationInput[]): number {
     db.exec("DELETE FROM stations");
     for (const s of stations) {
       const [lng, lat] = s.location.coordinates;
-      const id = stableStationId(s.primarySource, s.name, s.location.coordinates);
+      const id = stableStationId(s.primarySource, s.primaryExternalId, s.name, s.location.coordinates);
       const updatedAt = s.updatedAt ? new Date(s.updatedAt).toISOString() : now;
       db.run(
         `INSERT OR REPLACE INTO stations

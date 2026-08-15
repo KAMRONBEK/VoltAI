@@ -66,7 +66,9 @@ export function upsertRawStations(inputs: RawStationInput[]): number {
 }
 
 export function listAllRawStations(): RawStationRecord[] {
-  const rows = getDb().all("SELECT * FROM raw_stations") as Record<string, any>[];
+  // Deterministic order: the merge seeds each cluster from the FIRST row it sees, and that seed
+  // decides the canonical id/name/coords — so the scan order must not depend on SQLite internals.
+  const rows = getDb().all("SELECT * FROM raw_stations ORDER BY id") as Record<string, any>[];
   return rows.map((r) => ({
     source: r.source,
     externalId: r.external_id,
@@ -79,6 +81,21 @@ export function listAllRawStations(): RawStationRecord[] {
     rawData: parseRawData(r.raw_data),
     scrapedAt: r.scraped_at ? new Date(r.scraped_at) : new Date(),
   }));
+}
+
+/**
+ * Forget raw rows that no scrape has reported for `retentionDays`. The raw table is upsert-only,
+ * so without this a charger an operator decommissioned would stay in the merge input forever
+ * (frozen at its last status). Rows are only pruned once they are far older than the
+ * status-freshness window, so a source that is merely down for a while keeps its stations
+ * (with statuses shown as unknown — see mergeService) rather than losing them.
+ */
+export function pruneRawStations(retentionDays: number): number {
+  const cutoff = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
+  const db = getDb();
+  const before = countRawStations();
+  db.run("DELETE FROM raw_stations WHERE scraped_at < ?", [cutoff]);
+  return before - countRawStations();
 }
 
 export function countRawStations(): number {

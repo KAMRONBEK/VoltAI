@@ -55,6 +55,42 @@ function parsePower(value: unknown): number | undefined {
   return match ? Number(match[1]) : undefined;
 }
 
+/**
+ * Per-connector OCPP-style status strings seen live (charge_point.status is a boolean that is
+ * FALSE for most healthy points — it is NOT "online"; reading it as such marked ~75% of the
+ * network offline). `connected === false` on the charge point is the only point-level signal
+ * that overrides the connector's own status.
+ */
+function connectorStatus(point: KwattChargePoint, connector: KwattConnector): string {
+  if (point.connected === false) return "offline";
+  const raw = typeof connector.status === "string" ? connector.status.trim().toLowerCase() : "";
+  switch (raw) {
+    case "available":
+      return "available";
+    case "charging":
+    case "preparing":
+    case "finishing":
+    case "occupied":
+    case "reserved":
+    case "suspendedev":
+    case "suspendedevse":
+      return "in_use";
+    case "unavailable":
+    case "faulted":
+    case "offline":
+      return "offline";
+    default:
+      return "unknown";
+  }
+}
+
+/** DRF pagination: `{count,next,previous,results}` — follow `next` until null. */
+export function kwattNextPage(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const next = (payload as Record<string, unknown>).next;
+  return typeof next === "string" && next.startsWith("http") ? next : null;
+}
+
 function toRows(payload: unknown): KwattStation[] {
   if (Array.isArray(payload)) {
     return payload as KwattStation[];
@@ -82,12 +118,11 @@ function parseKwatt(payload: unknown): RawStationInput[] {
 
     const connectors: Connector[] = [];
     for (const point of row.charge_points ?? []) {
-      const online = point.connected !== false && point.status !== false;
       for (const connector of point.connectors ?? []) {
         connectors.push({
           type: connector.type_connection_name?.trim() || "unknown",
           power: parsePower(connector.power_name) ?? parsePower(point.type),
-          status: online ? "available" : "offline",
+          status: connectorStatus(point, connector),
           pricePerKwh: parseMoney(connector.price?.price_connector),
           parkingFee: parseMoney(connector.price?.price_parking),
           currency: "UZS"
@@ -127,7 +162,7 @@ const kWattConfig: AppScraperConfig = {
     mapTabSelector: "tap:540:1820"
   },
   parseResponse: parseKwatt,
-  http: [{ url: `${API_BASE}/core/charge-point-list/` }]
+  http: [{ url: `${API_BASE}/core/charge-point-list/`, nextPage: kwattNextPage }]
 };
 
 export default kWattConfig;

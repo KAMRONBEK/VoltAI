@@ -1,3 +1,4 @@
+import { API_BASE_URL } from '@/lib/apiBaseUrl';
 import type { Plug } from '@/lib/vehicles/garage';
 
 /**
@@ -7,8 +8,6 @@ import type { Plug } from '@/lib/vehicles/garage';
  * answers repeats from its cache and the edge absorbs the rest, which matters because the origin
  * is a single phone.
  */
-
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? 'https://api.voltai.uz';
 
 /** Long enough for a cold plan (which includes a routing call), short enough to fail visibly. */
 const TIMEOUT_MS = 20_000;
@@ -35,6 +34,10 @@ export interface PlanOption {
   driveMin: number;
   chargeMin: number;
   plugMin: number;
+  /** Minutes queued at busy stops (0 when every stop is free). Older backends omit it. */
+  waitMin?: number;
+  /** Fixed start/end overhead the planner adds to totalMin. Older backends omit it. */
+  terminalMin?: number;
   distanceKm: number;
   stops: number;
   arriveSocPct: number;
@@ -103,9 +106,12 @@ export interface PlanRequest {
 
 export class PlanError extends Error {
   readonly reason: string;
-  constructor(message: string, reason: string) {
+  /** The HTTP status that produced this error, when there was a response at all. */
+  readonly httpStatus?: number;
+  constructor(message: string, reason: string, httpStatus?: number) {
     super(message);
     this.reason = reason;
+    this.httpStatus = httpStatus;
   }
 }
 
@@ -134,14 +140,56 @@ export async function fetchPlan(req: PlanRequest): Promise<PlanResponse> {
     const res = await fetch(buildPlanUrl(req), { signal: controller.signal });
 
     if (res.status === 503) {
-      throw new PlanError('The planner is busy right now. Try again in a moment.', 'busy');
+      throw new PlanError('The planner is busy right now. Try again in a moment.', 'busy', 503);
     }
     if (res.status === 400) {
       const body = (await res.json().catch(() => null)) as { message?: string; reason?: string } | null;
-      throw new PlanError(body?.message ?? 'That trip could not be read.', body?.reason ?? 'bad-request');
+      const reason = body?.reason;
+      // The server's own wording ("range must be 50-1200 km …") is a validation message for
+      // developers. The user entered that number in the garage, so send them there.
+      if (reason === 'invalid-range') {
+        throw new PlanError(
+          'The range saved for this car is outside what the planner accepts (50–1200 km of real-world range). Check it in your garage.',
+          reason,
+          400
+        );
+      }
+      if (reason === 'outside-service-area') {
+        throw new PlanError(
+          'That start or destination is outside the area VoltAI covers (Uzbekistan and its neighbours).',
+          reason,
+          400
+        );
+      }
+      // Every other `invalid-*` (dcKw, consWhKm, …) is a number that came from the saved car —
+      // the screen already refuses to plan without valid coordinates, so those cannot be it.
+      if (reason?.startsWith('invalid-')) {
+        throw new PlanError(
+          "One of this car's figures is outside what the planner accepts — check the car in your garage.",
+          reason,
+          400
+        );
+      }
+      throw new PlanError(body?.message ?? 'That trip could not be read.', reason ?? 'bad-request', 400);
+    }
+    if (res.status === 429) {
+      throw new PlanError(
+        'Too many plan requests in a short time — wait a moment and try again.',
+        'rate-limited',
+        429
+      );
+    }
+    // A 404 on the plan route means the backend predates the planner (or the edge is fronting an
+    // older deploy) — not a route that could not be found. Say so instead of "HTTP 404".
+    if (res.status === 404) {
+      throw new PlanError(
+        "The route planner isn't available on this server yet — the backend needs an update.",
+        'unavailable',
+        404
+      );
     }
     if (!res.ok) {
-      throw new PlanError(`The planner is unavailable (HTTP ${res.status}).`, 'http');
+      throw new PlanError(`The planner is unavailable (HTTP ${res.status}).`, 'http', res.status);
     }
 
     return (await res.json()) as PlanResponse;

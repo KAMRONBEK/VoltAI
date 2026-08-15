@@ -67,7 +67,8 @@ function summarize(label: string, res: PlanResult): void {
     const m = Math.round(p.totalMin % 60);
     console.log(
       `  [${p.label}] ${h}h ${String(m).padStart(2, "0")}m — ${p.stops.length} stop(s), ` +
-        `drive ${p.driveMin.toFixed(0)}m charge ${p.chargeMin.toFixed(0)}m plug ${p.plugMin}m, ` +
+        `drive ${p.driveMin.toFixed(0)}m charge ${p.chargeMin.toFixed(0)}m plug ${p.plugMin}m ` +
+        `wait ${p.waitMin.toFixed(0)}m terminal ${p.terminalMin}m, ` +
         `arrive ${(p.arriveSoc * 100).toFixed(1)}%, min SoC ${(p.minSoc * 100).toFixed(1)}%`
     );
     for (const s of p.stops) {
@@ -109,7 +110,10 @@ async function main(): Promise<void> {
 
   const base = {
     corridor,
-    stations: gbt,
+    // Statuses come from whatever the last scrape saw. The "quiet" assertions below (waitMin === 0)
+    // must not turn red because a corridor site happens to be busy right now, so run them on
+    // unknown statuses (exactly what plan.ts does for live=0); the all-busy variant is explicit.
+    stations: gbt.map((s) => ({ ...s, status: "unknown" as const })),
     rangeKm: 400,
     startSoc: 0.8,
     vehicleMaxKw: 100,
@@ -146,6 +150,24 @@ async function main(): Promise<void> {
       "arrives with reserve intact (>=15%)",
       p.arriveSoc >= 0.149,
       `arrive ${(p.arriveSoc * 100).toFixed(1)}%`
+    );
+  }
+
+  // 1b. The itinerary must be a strict sum. Wait time used to be hidden inside driveMin; the API
+  //     now reports every component so the client can show the arithmetic, and it only can if
+  //     nothing leaks between buckets. Also run with EVERY station busy so waitMin is non-zero
+  //     (a partial marking is dodged by the optimizer, which just picks the quiet neighbours).
+  const allBusy = planRoute({ ...base, stations: gbt.map((s) => ({ ...s, status: "busy" as const })) });
+  for (const [tag, p] of [
+    ...fastest.plans.map((p) => ["quiet", p] as const),
+    ...allBusy.plans.map((p) => ["all-busy", p] as const),
+  ]) {
+    const sum = p.driveMin + p.chargeMin + p.plugMin + p.waitMin + p.terminalMin;
+    const waitOk = tag === "all-busy" ? p.waitMin > 0 : p.waitMin === 0;
+    check(
+      `[${tag}/${p.label}] totalMin == drive + charge + plug + wait + terminal`,
+      Math.abs(sum - p.totalMin) < 1e-6 && waitOk && p.driveMin > 0,
+      `${p.totalMin.toFixed(2)} vs ${sum.toFixed(2)} (wait ${p.waitMin.toFixed(1)}m)`
     );
   }
 

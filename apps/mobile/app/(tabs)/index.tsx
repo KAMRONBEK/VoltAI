@@ -12,14 +12,14 @@ import { StationsFilterSheet } from '@/components/stations/stations-filter-sheet
 import { useIsOffline } from '@/hooks/use-is-offline';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useThemeColors } from '@/lib/theme/theme-context';
-import { fetchStationStatuses, listStations } from '@/lib/stations/stationsClient';
-import type { Station } from '@/types/stations';
+import { CACHE_STATUSES_TRUSTED_MS, fetchStationStatuses, listStations } from '@/lib/stations/stationsClient';
+import type { Station, StationsSource } from '@/types/stations';
 import { DEFAULT_STATIONS_FILTERS, type StationsFilters } from '@/types/stationsFilters';
 import * as Location from 'expo-location';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ActivityIndicator, AppState, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Linking, Pressable, StyleSheet, View } from 'react-native';
 import { Clusterer, Marker, YandexMapView, type YandexMapViewRef } from 'expo-yandex-mapkit';
 
 const UZBEKISTAN_CAMERA = {
@@ -48,9 +48,19 @@ export default function StationsMapScreen() {
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [isLoadingStations, setIsLoadingStations] = useState(true);
   const [stationsApiError, setStationsApiError] = useState<string | undefined>(undefined);
-  // Timestamp of the last successful sync with the backend (initial load or a status poll) —
-  // drives the "Live" freshness pill.
+  /** Where the catalog on screen came from; null until the first load settles. */
+  const [loadSource, setLoadSource] = useState<StationsSource | null>(null);
+  /** When the on-device cache now on screen was written (only while `loadSource === 'cache'`). */
+  const [cachedAt, setCachedAt] = useState<number | null>(null);
+  /** False when that cache was old enough that the client downgraded every status to `unknown`. */
+  const [cacheStatusesTrusted, setCacheStatusesTrusted] = useState(false);
+  // Timestamp of the last successful contact with the backend (a catalog load or a status poll —
+  // a 200 or a 304 both count). Together with the data age below it drives the freshness pill.
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
+  // When the backend last merged its sources — the real age of every status dot. Comes back on
+  // the catalog and on every 200 poll; a 304 leaves it alone (unchanged data, growing age).
+  const [dataAsOf, setDataAsOf] = useState<string | null>(null);
+  const [dataStale, setDataStale] = useState(false);
 
   type StationGroup = { id: string; location: Station['location']; stations: Station[] };
 
@@ -61,48 +71,132 @@ export default function StationsMapScreen() {
     return `${lat}:${lng}`;
   }
 
-  useEffect(() => {
-    let cancelled = false;
+  // Refs mirror the bits of load state the async callbacks below need to read without being
+  // re-created (and re-subscribed) on every render.
+  const mountedRef = useRef(true);
+  const loadingRef = useRef(false);
+  const loadSourceRef = useRef<StationsSource | null>(null);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const emptyRetriesRef = useRef(0);
+  // Mirrors `isOffline` for the poll below (kept current by the offline→online effect).
+  const isOfflineRef = useRef(isOffline);
+  // Identity of the cache currently on screen. A reload that serves the very same cache again
+  // must not replace the stations array — that rebuilds all ~1000 markers for no visible change.
+  const shownCacheRef = useRef<{ cachedAt: number | null; statusesTrusted: boolean } | null>(null);
 
-    async function bootstrap() {
-      try {
-        const [stationsResult] = await Promise.all([listStations(), requestAndCenterUserLocation(mapRef)]);
-        if (cancelled) return;
-        setStations(stationsResult.stations);
-        setStationsApiError(stationsResult.apiError);
-        if (stationsResult.source === 'api') setLastSyncAt(Date.now());
-      } finally {
-        if (!cancelled) setIsLoadingStations(false);
-      }
+  /**
+   * Load (or reload) the catalog. Concurrency-guarded so the several triggers below — mount, the
+   * Retry button, the network coming back, a foreground, the poll's recovery path — never overlap.
+   * Every outcome lands in state; nothing here can leave the map on "Loading stations…" forever.
+   */
+  const loadStations = useCallback(async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
     }
-
-    bootstrap();
-    return () => {
-      cancelled = true;
-    };
+    setIsLoadingStations(true);
+    try {
+      const result = await listStations();
+      if (!mountedRef.current) return;
+      if (result.source === 'cache') {
+        const cache = { cachedAt: result.cachedAt ?? null, statusesTrusted: result.statusesTrusted === true };
+        const shown = shownCacheRef.current;
+        const sameCache =
+          shown != null && shown.cachedAt === cache.cachedAt && shown.statusesTrusted === cache.statusesTrusted;
+        // The same cache is already on screen: only the error copy / source can have changed.
+        if (!sameCache) setStations(result.stations);
+        shownCacheRef.current = cache;
+      } else {
+        setStations(result.stations);
+        shownCacheRef.current = null;
+      }
+      setStationsApiError(result.apiError);
+      setLoadSource(result.source);
+      loadSourceRef.current = result.source;
+      setCachedAt(result.source === 'cache' ? (result.cachedAt ?? null) : null);
+      setCacheStatusesTrusted(result.source === 'cache' && result.statusesTrusted === true);
+      if (result.source === 'api') {
+        setLastSyncAt(Date.now());
+        if (result.lastMergeAt !== undefined) setDataAsOf(result.lastMergeAt);
+        emptyRetriesRef.current = 0;
+      } else if (result.errorKind === 'empty') {
+        // The backend is up but has no stations (fresh deploy, a merge in progress). That fixes
+        // itself within minutes, so keep asking — with backoff, since the origin is one phone.
+        const attempt = emptyRetriesRef.current;
+        emptyRetriesRef.current = Math.min(attempt + 1, 6);
+        retryTimerRef.current = setTimeout(() => {
+          // Backgrounded: let the foreground refresh pick it up instead of fetching unseen.
+          if (AppState.currentState === 'active') void loadStations();
+        }, Math.min(5_000 * 2 ** attempt, 120_000));
+      }
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setStationsApiError(err instanceof Error ? err.message : 'Could not load stations.');
+      setLoadSource('error');
+      loadSourceRef.current = 'error';
+    } finally {
+      loadingRef.current = false;
+      if (mountedRef.current) setIsLoadingStations(false);
+    }
   }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    // The catalog and the location fix are independent: the map used to wait on BOTH, so a slow
+    // GPS fix (or a permission prompt left unanswered) held the stations back with it. Location
+    // is best-effort here — silent, no settings dialog — the FAB is the place to ask properly.
+    void loadStations();
+    requestAndCenterUserLocation(mapRef, { interactive: false }).catch(() => {});
+    return () => {
+      mountedRef.current = false;
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
+  }, [loadStations]);
+
+  // Recovery triggers: the network coming back, and the app returning to the foreground, both
+  // re-fetch the catalog while the last load did not come from the API. (Foreground is handled in
+  // the poll effect below, which owns the AppState subscription.)
+  const wasOfflineRef = useRef(isOffline);
+  useEffect(() => {
+    const wasOffline = wasOfflineRef.current;
+    wasOfflineRef.current = isOffline;
+    isOfflineRef.current = isOffline;
+    if (wasOffline && !isOffline && loadSourceRef.current !== 'api') void loadStations();
+  }, [isOffline, loadStations]);
 
   // Live status refresh: poll the compact statuses feed and patch each station's overall +
   // per-connector status in place. The backend re-scrapes every ~5 min; a 60s poll keeps the
   // marker dots current. We send back the last ETag so idle polls (the ~4 of 5 between scrapes)
   // come back as a 0-byte 304 with no JSON to parse. State only changes when a status actually
   // changed, so idle polls never re-render the map. Best-effort — a failed poll leaves the
-  // last-known statuses on screen.
+  // last-known statuses on screen. Subscribed once, for the life of the screen — gating this on
+  // `stations.length` used to mean an empty first load had no path back to a full map.
   const STATUS_POLL_MS = 60_000;
   const statusEtagRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!stations.length) return;
     let cancelled = false;
 
     async function pollStatuses() {
       // Don't poll while backgrounded — saves battery/network; we refresh on foreground instead.
       if (AppState.currentState !== 'active') return;
+      // No live catalog to patch — a cache, an error, or nothing at all. The useful thing to do
+      // with this tick is to try the catalog again, which is also how the pill returns to "Live".
+      if (loadSourceRef.current !== 'api') {
+        // Offline, a reload can only re-serve the on-device cache; the offline→online effect
+        // above owns recovery, so this tick has nothing useful to do.
+        if (!isOfflineRef.current) void loadStations();
+        return;
+      }
       const result = await fetchStationStatuses({ etag: statusEtagRef.current });
       if (cancelled || !result) return;
       // A 200 (fresh data) or a 304 (confirmed current) both count as a successful sync.
       setLastSyncAt(Date.now());
       if (result.kind === 'not-modified') return;
 
+      setDataAsOf(result.freshness.lastMergeAt);
+      setDataStale(result.freshness.stale);
       // Keep the last good ETag if a proxy stripped it from this response, so we don't silently
       // lose the 304 optimization on every subsequent poll.
       if (result.etag) statusEtagRef.current = result.etag;
@@ -150,7 +244,30 @@ export default function StationsMapScreen() {
       clearInterval(timer);
       appStateSub.remove();
     };
-  }, [stations.length]);
+  }, [loadStations]);
+
+  // "Only available" only means something while the statuses on screen are real. Serving an old
+  // cache, every status is `unknown` (downgraded by the client), so the filter would empty the map.
+  // Derived, not reset in an effect: the switch shows off and disabled, and the filter is ignored.
+  // Freshness is measured, not assumed: an API load that then loses signal keeps ageing on screen,
+  // so past the same trust window the cache uses the filter switches itself off. Clock in state,
+  // ticked by an interval, rather than `Date.now()` in render (react-hooks/purity).
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => {
+    const tick = () => setNow(Date.now());
+    const seed = setTimeout(tick, 0);
+    const id = setInterval(tick, 60_000);
+    return () => {
+      clearTimeout(seed);
+      clearInterval(id);
+    };
+  }, []);
+  const dataAt = dataAsOf ? Date.parse(dataAsOf) : NaN;
+  // A backend that reports no merge time falls back to the last successful sync as the anchor.
+  const statusesAt = Number.isFinite(dataAt) ? dataAt : lastSyncAt;
+  const statusesFresh = now != null && statusesAt != null && now - statusesAt <= CACHE_STATUSES_TRUSTED_MS;
+  const availabilityKnown = statusesFresh || (loadSource === 'cache' && cacheStatusesTrusted);
+  const onlyAvailable = filters.onlyAvailable && availabilityKnown;
 
   const filterOptions = useMemo(() => {
     const connectorTypes = new Set<string>();
@@ -175,7 +292,7 @@ export default function StationsMapScreen() {
 
   const activeFilterCount = useMemo(() => {
     let n = 0;
-    if (filters.onlyAvailable) n += 1;
+    if (onlyAvailable) n += 1;
     if (filters.categories.length) n += 1;
     if (filters.minPowerKw !== null && filters.minPowerKw > 0) n += 1;
     if (filters.connectorTypes.length) n += 1;
@@ -183,11 +300,11 @@ export default function StationsMapScreen() {
     if (filters.cities.length) n += 1;
     if (filters.amenities.length) n += 1;
     return n;
-  }, [filters]);
+  }, [filters, onlyAvailable]);
 
   const filteredStations = useMemo(() => {
     return stations.filter((s) => {
-      if (filters.onlyAvailable && s.status !== 'available') return false;
+      if (onlyAvailable && s.status !== 'available') return false;
 
       if (filters.categories.length) {
         if (!s.category || !filters.categories.includes(s.category)) return false;
@@ -219,7 +336,7 @@ export default function StationsMapScreen() {
 
       return true;
     });
-  }, [filters, stations]);
+  }, [filters, onlyAvailable, stations]);
 
   const stationGroups = useMemo<StationGroup[]>(() => {
     const map = new Map<string, StationGroup>();
@@ -338,30 +455,63 @@ export default function StationsMapScreen() {
         </Clusterer>
       </YandexMapView>
 
-      <View pointerEvents="none" style={[styles.topOverlay, { top: insets.top + 10 }]}>
+      {/* `box-none` so the Retry link is tappable while the rest of the overlay stays transparent
+          to touches — `none` would swallow the tap along with everything else. */}
+      <View pointerEvents="box-none" style={[styles.topOverlay, { top: insets.top + 10 }]}>
         <OfflineBanner visible={isOffline} />
-        {isLoadingStations ? (
+        {isLoadingStations && !stations.length ? (
           <ChromePill>
             <ActivityIndicator color={c.chromeText} />
             <ThemedText type="defaultSemiBold" style={{ color: c.chromeText }}>
               Loading stations…
             </ThemedText>
           </ChromePill>
-        ) : stationsApiError ? (
-          <ChromePill tone="warn" style={styles.pillStack}>
-            <ThemedText type="defaultSemiBold" style={{ color: c.chromeText }}>
-              Stations data
-            </ThemedText>
-            <ThemedText style={{ color: c.chromeText }}>{stationsApiError}</ThemedText>
-          </ChromePill>
         ) : (
-          <LiveStatusPill lastSyncAt={lastSyncAt} isOffline={isOffline} />
+          <>
+            {stations.length ? (
+              <LiveStatusPill
+                dataAsOf={dataAsOf}
+                dataStale={dataStale}
+                lastSyncAt={lastSyncAt}
+                cachedAt={loadSource === 'cache' ? cachedAt : null}
+                isOffline={isOffline}
+              />
+            ) : null}
+            {/* Offline with a cache is already fully explained by the two pills above, and Retry
+                would fail; it re-fetches by itself when the network returns. */}
+            {stationsApiError && !(isOffline && loadSource === 'cache') ? (
+              <ChromePill tone="warn" style={styles.pillStack}>
+                <View style={styles.pillTitleRow}>
+                  <ThemedText type="defaultSemiBold" style={{ color: c.chromeText }}>
+                    Stations data
+                  </ThemedText>
+                  <Pressable
+                    onPress={() => void loadStations()}
+                    disabled={isLoadingStations}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Retry loading stations">
+                    <ThemedText type="defaultSemiBold" style={{ color: c.tint }}>
+                      {isLoadingStations ? 'Retrying…' : 'Retry'}
+                    </ThemedText>
+                  </Pressable>
+                </View>
+                <ThemedText style={{ color: c.chromeText }}>
+                  {isOffline ? "You're offline." : stationsApiError}
+                </ThemedText>
+              </ChromePill>
+            ) : null}
+          </>
         )}
       </View>
 
       <View style={[styles.fabColumn, { bottom: controlsBottom }]}>
         <Pressable
-          onPress={() => requestAndCenterUserLocation(mapRef)}
+          onPress={() =>
+            requestAndCenterUserLocation(mapRef, { interactive: true }).catch(() =>
+              Alert.alert('Could not get your location', 'Try again in a moment.')
+            )
+          }
           style={[styles.fabButton, { backgroundColor: c.chrome, borderColor: c.chromeBorder, boxShadow: c.chromeShadow }]}
           accessibilityRole="button"
           accessibilityLabel="My location">
@@ -387,6 +537,7 @@ export default function StationsMapScreen() {
         filters={filters}
         options={filterOptions}
         onChange={setFilters}
+        availabilityKnown={availabilityKnown}
         onReset={() => setFilters(DEFAULT_STATIONS_FILTERS)}
         onClose={() => setIsFilterOpen(false)}
       />
@@ -394,12 +545,36 @@ export default function StationsMapScreen() {
   );
 }
 
-async function requestAndCenterUserLocation(mapRef: React.RefObject<YandexMapViewRef | null>) {
-  const { status } = await Location.requestForegroundPermissionsAsync();
-  if (status !== Location.PermissionStatus.GRANTED) return;
+/**
+ * Centre the map on the user. `interactive` is the FAB: it may explain itself with an Alert (send
+ * the user to Settings after a permanent denial, tell them GPS is off). The launch-time call is
+ * silent — no dialogs before the map has even drawn — and never throws into the caller.
+ */
+async function requestAndCenterUserLocation(
+  mapRef: React.RefObject<YandexMapViewRef | null>,
+  { interactive }: { interactive: boolean }
+) {
+  const permission = await Location.requestForegroundPermissionsAsync();
+  if (permission.status !== Location.PermissionStatus.GRANTED) {
+    if (interactive && !permission.canAskAgain) {
+      Alert.alert('Location is off for VoltAI', 'Allow location in Settings to centre the map on you.', [
+        { text: 'Not now', style: 'cancel' },
+        { text: 'Open Settings', onPress: () => Linking.openSettings().catch(() => {}) },
+      ]);
+    }
+    return;
+  }
+
+  if (!(await Location.hasServicesEnabledAsync())) {
+    if (interactive) Alert.alert('Location is turned off', 'Turn on location (GPS) to centre the map on you.');
+    return;
+  }
 
   const location = await Location.getCurrentPositionAsync({
     accuracy: Location.Accuracy.Balanced,
+    // Android can pop a "turn on location?" system dialog from inside this call; only the FAB
+    // has asked for that.
+    mayShowUserSettingsDialog: interactive,
   });
 
   await mapRef.current?.setCenter(
@@ -432,7 +607,8 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   /** The warning variant stacks its two lines instead of sitting them side by side. */
-  pillStack: { flexDirection: 'column', alignItems: 'flex-start', gap: 2 },
+  pillStack: { flexDirection: 'column', alignItems: 'stretch', gap: 2 },
+  pillTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 },
   fabColumn: {
     position: 'absolute',
     // Pull the column edge in by the badge overhang so the buttons keep a 12px margin while the

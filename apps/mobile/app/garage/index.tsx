@@ -113,7 +113,8 @@ export default function GarageScreen() {
         <PrimaryButton label="Add a car" onPress={() => router.push('/garage/new')} />
 
         <ThemedText style={[styles.caption, { color: c.textMuted, textAlign: 'center' }]}>
-          Saved on this device only — no account, nothing uploaded.
+          Saved on this device — no account. When you plan a trip, only the car figures the planner
+          needs (range, connector, charging speed) go to the server, never a name or an identity.
         </ThemedText>
       </ScrollView>
     </ThemedView>

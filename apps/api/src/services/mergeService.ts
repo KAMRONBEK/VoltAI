@@ -2,6 +2,7 @@ import { listAllRawStations } from "../repositories/rawStationRepo";
 import { replaceAllStations } from "../repositories/stationRepo";
 import { distanceMeters, nameTokens, similarityFromTokens, type NameTokens } from "../../scrapers/utils/geo";
 import type { Connector, SourceId } from "../types/station";
+import { envInt } from "../env";
 
 const sourcePriority: SourceId[] = [
   "tokbor",
@@ -27,7 +28,29 @@ interface MergeStation {
   images: string[];
   sources: SourceId[];
   primarySource: SourceId;
+  /** External id of the raw row that seeded this record — the canonical id is derived from it. */
+  primaryExternalId: string;
+  /** Newest scrape time among the contributing raw rows (what the wire's `updatedAt` reports). */
   updatedAt: Date;
+}
+
+/**
+ * Freshness policy for what a raw row is still allowed to claim.
+ * - Older than STATION_TTL_DAYS: the row is ignored entirely (an operator removed the charger, or
+ *   the source has been dead for a week — either way it must not be on the map as "live").
+ * - Older than STATUS_MAX_AGE_SEC (default 1 h ≈ 12+ missed 3-5 min scrapes): the row still
+ *   places the station on the map, but its connector statuses are downgraded to `unknown` so a
+ *   frozen "available" from a source whose token expired is never presented as current.
+ */
+const STATION_TTL_MS = envInt("STATION_TTL_DAYS", 7, { min: 1 }) * 86_400_000;
+const STATUS_MAX_AGE_MS = envInt("STATUS_MAX_AGE_SEC", 3600, { min: 60 }) * 1000;
+
+function freshConnectors(raw: { connectors: Connector[] | undefined; scrapedAt: Date }, now: number): Connector[] {
+  const list = (raw.connectors ?? []).map((item) => ({ ...item }));
+  if (now - raw.scrapedAt.getTime() > STATUS_MAX_AGE_MS) {
+    for (const c of list) c.status = "unknown";
+  }
+  return list;
 }
 
 /** Identity of a connector for dedup — same plug type + power = same slot. */
@@ -59,6 +82,8 @@ export async function mergeStations(): Promise<{ mergedCount: number }> {
   /** cell key -> indices into `merged` that fall in that cell. */
   const grid = new Map<string, number[]>();
 
+  const now = Date.now();
+  // Stable sort by source priority; ties keep raw-row order (listAllRawStations orders by id).
   const sorted = rawStations.sort((a, b) => getPriority(a.source) - getPriority(b.source));
 
   for (const raw of sorted) {
@@ -66,6 +91,9 @@ export async function mergeStations(): Promise<{ mergedCount: number }> {
     const rawName = raw.name ?? "";
     const rawCoords = raw.location?.coordinates as [number, number] | undefined;
     if (!rawCoords || rawCoords.length !== 2 || !rawName) {
+      continue;
+    }
+    if (now - raw.scrapedAt.getTime() > STATION_TTL_MS) {
       continue;
     }
 
@@ -112,20 +140,25 @@ export async function mergeStations(): Promise<{ mergedCount: number }> {
           type: "Point",
           coordinates: rawCoords
         },
-        connectors: (raw.connectors ?? []).map((item) => ({ ...item })),
+        connectors: freshConnectors(raw, now),
         workingHours: raw.workingHours ?? undefined,
         rating: raw.rating ?? undefined,
         description: extractDescription(raw.rawData),
         images: extractImages(raw.rawData),
         sources: [rawSource],
         primarySource: rawSource,
-        updatedAt: new Date()
+        primaryExternalId: raw.externalId,
+        updatedAt: raw.scrapedAt
       });
       continue;
     }
 
     const target = merged[foundIndex];
-    if (!target.sources.includes(rawSource)) {
+    // Same operator reporting another post/gun at this site (Spectre emits one row per gun,
+    // Tokbor one per post): those are DISTINCT physical connectors and must all be kept. Only
+    // rows from a DIFFERENT source describe the same hardware twice and get deduplicated.
+    const sameSourceSibling = target.sources.includes(rawSource);
+    if (!sameSourceSibling) {
       target.sources.push(rawSource);
     }
 
@@ -150,6 +183,7 @@ export async function mergeStations(): Promise<{ mergedCount: number }> {
       }
 
       target.primarySource = rawSource;
+      target.primaryExternalId = raw.externalId;
       target.name = rawName || target.name;
       if (rawName) mergedTokens[foundIndex] = rawTokens;
       target.address = raw.address ?? target.address;
@@ -159,24 +193,50 @@ export async function mergeStations(): Promise<{ mergedCount: number }> {
       target.description = extractDescription(raw.rawData) ?? target.description;
     }
 
+    if (sameSourceSibling && rawSource === target.primarySource) {
+      // Same operator, another post/gun of the seed's own site: keep the id anchored to the
+      // operator's SMALLEST external id for the site, not to whichever row happened to be scanned
+      // first — so pruning/re-adding one post never renames the station.
+      if (compareExternalIds(raw.externalId, target.primaryExternalId) < 0) {
+        target.primaryExternalId = raw.externalId;
+      }
+    }
+
     if (raw.connectors?.length) {
-      const seen = new Set(target.connectors.map(connectorKey));
-      for (const connector of raw.connectors) {
-        const key = connectorKey(connector);
-        if (!seen.has(key)) {
-          target.connectors.push({ ...connector });
-          seen.add(key);
+      const incoming = freshConnectors(raw, now);
+      if (sameSourceSibling && rawSource === target.primarySource) {
+        // Only the PRIMARY source's own siblings are appended wholesale (they are distinct guns);
+        // any other source describing this site is deduplicated against what is already there.
+        target.connectors.push(...incoming);
+      } else {
+        const seen = new Set(target.connectors.map(connectorKey));
+        for (const connector of incoming) {
+          const key = connectorKey(connector);
+          if (!seen.has(key)) {
+            target.connectors.push(connector);
+            seen.add(key);
+          }
         }
       }
     }
     mergeImages(target, extractImages(raw.rawData));
-    target.updatedAt = new Date();
+    if (raw.scrapedAt.getTime() > target.updatedAt.getTime()) {
+      target.updatedAt = raw.scrapedAt;
+    }
   }
 
   // One atomic replace (BEGIN IMMEDIATE) instead of the old non-atomic deleteMany+insertMany.
   replaceAllStations(merged);
 
   return { mergedCount: merged.length };
+}
+
+/** Numeric-aware ordering of operator external ids ("12" < "100"; falls back to string order). */
+function compareExternalIds(a: string, b: string): number {
+  const na = Number(a);
+  const nb = Number(b);
+  if (Number.isFinite(na) && Number.isFinite(nb) && /^\d+$/.test(a) && /^\d+$/.test(b)) return na - nb;
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 function getPriority(source: string): number {

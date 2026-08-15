@@ -35,11 +35,17 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    loadAppSettings().then((s) => {
-      if (cancelled) return;
-      setPreferenceState(s.themePreference);
-      setIsLoaded(true);
-    });
+    // The splash waits on `isLoaded`, so a storage failure must still resolve it — with the
+    // default preference — rather than reject and leave the flag false.
+    loadAppSettings()
+      .then((s) => {
+        if (cancelled) return;
+        setPreferenceState(s.themePreference);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setIsLoaded(true);
+      });
     return () => {
       cancelled = true;
     };

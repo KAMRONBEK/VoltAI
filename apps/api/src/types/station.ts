@@ -66,5 +66,7 @@ export interface CanonicalStationInput {
   images?: string[];
   sources: SourceId[];
   primarySource: SourceId;
+  /** External id (in the primary source's own namespace) of the row that seeded the record. */
+  primaryExternalId?: string;
   updatedAt?: Date;
 }

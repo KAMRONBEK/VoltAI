@@ -1,9 +1,8 @@
 import axios from "axios";
-import dotenv from "dotenv";
+import "../../src/env";
 import * as tokborAuth from "../auth/tokbor";
-import { saveTokborDetails, type TokborDetail } from "../apps/tokborDetailCache";
+import { cachePath, loadTokborDetails, saveTokborDetails, type TokborDetail } from "../apps/tokborDetailCache";
 
-dotenv.config();
 
 /**
  * One-time (occasional) Tokbor detail enrichment.
@@ -34,6 +33,8 @@ function client(token: string) {
   });
 }
 
+let failures = 0;
+
 async function runPool<T>(items: T[], worker: (item: T, i: number) => Promise<void>): Promise<void> {
   let index = 0;
   const runners = Array.from({ length: Math.min(CONCURRENCY, items.length) }, async () => {
@@ -42,7 +43,8 @@ async function runPool<T>(items: T[], worker: (item: T, i: number) => Promise<vo
       try {
         await worker(items[i], i);
       } catch {
-        // skip failures; a missing detail just falls back to the synthesized name
+        // counted, not fatal: the previously cached detail for this id is kept (see main)
+        failures += 1;
       }
     }
   });
@@ -88,9 +90,19 @@ async function main(): Promise<void> {
     }
   });
 
-  saveTokborDetails(out);
+  // Merge OVER the existing cache: a flaky run must never strip names/prices (and, via the
+  // canonical id, identity) from stations whose detail GET happened to fail this time.
+  const existing = Object.fromEntries(loadTokborDetails());
+  const merged = { ...existing, ...out };
+  const fetched = Object.keys(out).length;
+  if (fetched === 0 || failures > ids.length / 2) {
+    throw new Error(`[enrich:tokbor] fetched ${fetched}, failed ${failures} of ${ids.length} — refusing to save a degraded cache`);
+  }
+  saveTokborDetails(merged);
   // eslint-disable-next-line no-console
-  console.log(`[enrich:tokbor] cached ${Object.keys(out).length} details → data/tokbor-details.json`);
+  console.log(`[enrich:tokbor] fetched ${fetched} / failed ${failures} of ${ids.length}; cache now ${Object.keys(merged).length} entries → ${cachePath()}`);
+  // eslint-disable-next-line no-console
+  console.log("[enrich:tokbor] the running API caches this file in memory — restart it (sv restart voltai-api) or redeploy with --force-data");
 }
 
 main().catch((error) => {

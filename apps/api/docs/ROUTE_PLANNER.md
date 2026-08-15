@@ -11,10 +11,10 @@ technical core; the phasing/blockers/open-questions material follows.
 | Charge curve (log-mean PWL) | IMPLEMENTED, reproduces the band table below to 4 dp | `src/services/planner/chargeCurve.ts` |
 | Corridor projection + gaps | IMPLEMENTED | `src/services/planner/corridor.ts` |
 | Label-setting search | IMPLEMENTED | `src/services/planner/planner.ts` |
-| Regression harness (19 checks) | IMPLEMENTED, runs in `npm run lint` | `scripts/plan-check.ts` |
+| Regression harness (22 checks) | IMPLEMENTED, runs in `npm run lint` | `scripts/plan-check.ts` |
 | Per-gun power (cabinet smear) | IMPLEMENTED — tokbor + beon; k-watt already had real per-gun data | `src/services/perGunPower.ts` |
-| MyTaxi routing client + cache | IMPLEMENTED — 90-day cache, token bucket, breaker, single-flight | `src/services/routing/mytaxi.ts` |
-| `GET /api/plan` endpoint | IMPLEMENTED, plus `/api/plan/health` | `src/routes/plan.ts` |
+| MyTaxi routing client + cache | IMPLEMENTED — 90-day cache, geometry validation on fetch AND on read, token bucket, breaker (5xx/network/timeout only), 10-min per-key negative cache for 4xx/malformed, single-flight, `pruneRouteCache()` each scrape cycle | `src/services/routing/mytaxi.ts` |
+| `GET /api/plan` endpoint | IMPLEMENTED, plus `/api/plan/health` — per-IP token bucket (429), knob validation (400), service-area bbox (400), inflight shed (503), geometry-aware ETag, short cache policy on degraded answers | `src/routes/plan.ts` |
 | `mergeStations()` O(n²) fix | IMPLEMENTED — 8966 ms → 180 ms, output byte-identical | `src/services/mergeService.ts` |
 | Merge equivalence guard | IMPLEMENTED, runs in `npm run lint` | `scripts/merge-check.ts` |
 | Garage (model, storage, 2 screens, plug gate, PHEV/CLTC guards) | IMPLEMENTED | `apps/mobile/lib/vehicles/garage.ts`, `app/garage/*` |
@@ -381,6 +381,15 @@ Input hygiene, enforced at save: `rangeKm > 600` prompts *"spec sheet, or what y
 
 All inside `SCHEMA_SQL` in `src/db/schema.ts` (`db.exec()`'d on every open ⇒ `IF NOT EXISTS` mandatory; a sidecar `.sql` file will not survive `tsc`). There is no migration runner, so **no `ALTER TABLE`** — site ids live in a side table.
 
+> **What actually shipped (2026-08-16):** only `route_cache`, and with a smaller shape than drawn
+> below — `(k, provider, distance_m, polyline, fetched_at)`, key `"olat,olng->dlat,dlng"` at 3 dp,
+> no `waypoints`/`hits` columns. **`plan_corridor`, `station_sites` and `plan_log` do not exist**;
+> nothing is logged per plan (no PII, and no request log at all). `pruneRouteCache()` in
+> `mytaxi.ts` runs once per scrape cycle: it deletes rows past the 90-day TTL and re-validates a
+> bounded slice (100 rows/cycle, cursor wraps) of the rest against their own key, so geometry
+> written before validation existed is weeded out over a few cycles. The design below is kept
+> for the reasoning; treat the DDL as a proposal.
+
 ```sql
 CREATE TABLE IF NOT EXISTS route_cache (
   k          TEXT PRIMARY KEY,      -- provider|"olat,olng|dlat,dlng" each toFixed(3) ≈110 m
@@ -448,6 +457,49 @@ Also **export** `maxPower()` / `deriveCategory()` from `src/db/mappers.ts`; note
 
 ## 5. API design
 
+> **Superseded — read this box first (2026-08-16).** The wire contract is the `PlanResponse` /
+> `PlanOption` types in [`apps/mobile/lib/plan/planClient.ts`](../../mobile/lib/plan/planClient.ts),
+> which mirror `src/routes/plan.ts` field for field. The JSON example further down was the design
+> sketch and differs from what shipped (`optimality`, `legs`, `effectiveKw`, `statusFresh`,
+> `fromSiteId`, `socNeededPct` … were never emitted; `arrive`, `opts`, `fast` are not read).
+> What the endpoint actually does today:
+>
+> - **Validation, before any work (400 with `{message, field, reason}`):** `from`/`to` must be
+>   `lat,lng` (`invalid-origin` / `invalid-destination`) **and inside the service area** — a
+>   generous Central-Asia box, lat 35–48 × lng 52–76 (`outside-service-area`); `range` 50–1200
+>   (`invalid-range`); `soc` 1–100 (`invalid-soc`); `plug` required and routable
+>   (`plug-required` / `unsupported-plug`); optional knobs are refused, not clamped, when present
+>   and out of range: `dcKw` 10–400, `consWhKm` 80–500, `minKw` 0–400, `maxDetourKm` 0–30
+>   (`invalid-dcKw` etc.). Absent knobs default to 90 / 180 / 50 / 5.
+> - **Per-IP token bucket** keyed on `req.ip` (= `CF-Connecting-IP` behind cloudflared, because
+>   `app.ts` sets `trust proxy` to loopback): `PLAN_RATE_PER_MIN` (default 20) requests per minute
+>   per IP, bucket size = the same number. Over it → **429** with `Retry-After` and
+>   `{message, code:'rate-limited'}`. Checked before parsing, so a flood costs one Map lookup.
+> - **Concurrency shed:** `PLAN_MAX_INFLIGHT` (default 2) → **503** + `Retry-After: 2` +
+>   `{message, reason:'busy'}`. The handler yields to the event loop once (`setImmediate`) between
+>   incrementing the counter and the synchronous solve, so concurrent arrivals actually see it.
+> - **There is no compute budget, no `optimality.status="heuristic"` fallback and no `plan_log`.**
+>   The solve runs to completion (~50 ms desktop / a few hundred ms on the phone).
+> - **Geometry:** MyTaxi (validated — see §5 routing notes below) or, on any routing failure, a
+>   straight line × 1.3 flagged `geometry:"estimated"`, `geometryTrusted:false`, `routingError`
+>   set and `polyline:null`.
+> - **Caching:** ETag tag = the quantized tag below **plus the geometry state** (`routed` vs
+>   `estimated`), so a client holding an estimated answer gets a fresh 200 once routing recovers,
+>   and a client that still holds the routed answer for the same data version gets a 304 while
+>   routing is down (its copy is exactly what we would recompute). Degraded answers are sent with
+>   `public, max-age=0, s-maxage=30` — no `stale-if-error`, no `Last-Modified` — so a guessed
+>   answer is never pinned at the edge for a week the way a good one deliberately is.
+> - **Itinerary arithmetic:** each option reports `totalMin`, `driveMin`, `chargeMin`, `plugMin`,
+>   `waitMin` (modelled queueing at busy sites, 12 min per non-gatekeeper busy stop) and
+>   `terminalMin` (20, city exit + entry), and `totalMin == driveMin + chargeMin + plugMin +
+>   waitMin + terminalMin` to rounding. `driveMin` is time in motion only.
+> - `blockingGap.reason` names the plug as a driver reads it (`GB/T`, `CCS2`, `CHAdeMO` …), while
+>   `vehicle.plug` stays the wire code (`GBT_DC`).
+> - `GET /api/plan/health` returns `{status, inflight, maxInflight, ratePerMin, trackedIps,
+>   lastMergeAt, routing:{configured, breakerOpen, breakerOpensInSec, consecutiveFailures,
+>   minuteUsed/Limit, dayUsed/Limit, cachedRoutes, negativeCached}}` — no `p95PlanMs`, no
+>   `abortedByBudget`.
+
 Mount in `src/app.ts`: `app.use("/api/plan", planRouter)` after the `/ingest` mount and **strictly before** the 4-arg error middleware. Do not import `scrapers/*` (pulls Puppeteer onto the request path).
 
 **GET, not POST.** `applyCache()` implements only conditional GET, and Cloudflare will not cache a POST — on a single-phone origin already stalled ~6 s desktop-equivalent per merge, a POST puts a fresh computation on that CPU for every retry and back-navigation.
@@ -503,7 +555,7 @@ Infeasible:
   "suggestions": ["Try 'relaxed' driving style", "A car with ≥300 km real range makes this trip"] }
 ```
 
-**Caching** — `applyCache` is called **before any computation**, mirroring `/statuses`.
+**Caching** — the conditional-GET check runs after the (cheap, cached) geometry lookup and before candidates/solve, because the ETag encodes whether geometry is real or estimated; on a routed answer it is `applyCache` exactly as on `/statuses`. Degraded answers use `PLAN_CACHE_DEGRADED` (`max-age=0, s-maxage=30`, no swr/sie) instead of the table below.
 
 | endpoint | maxAge | sMaxAge | swr | **sie** |
 |---|---|---|---|---|
@@ -513,17 +565,17 @@ Infeasible:
 
 `stale-if-error=604800` is the most important line in the file: the origin is a phone. The `live=1` variant gets its **own shorter policy** rather than shortening the base — mirroring the existing `STATUSES_CACHE` / `LIST_CACHE` split.
 
-ETag tag, quantized (this is simultaneously the cache-hit strategy and the **only** throttle on a public, unauthenticated endpoint):
+ETag tag, quantized (the cache-hit strategy on a public, unauthenticated endpoint; the throttle is the per-IP bucket described in the box above):
 ```
 pl-${lastMergeAt}-${olat.toFixed(3)},${olng.toFixed(3)}-${dlat.toFixed(3)},${dlng.toFixed(3)}
    -${round(range/10)*10}-${round(soc/5)*5}-${plug}-${dcKw}-${curve}-${style}-${temp}
    -${arrive}-${minKw}-${live}
 ```
-Plus `lastModified: lastMergeAt`. Also: `MAX_INFLIGHT_PLANS = 2` → 503 + `Retry-After: 2`; per-IP bucket 30/min, 300/h → 429 (validate `CF-Connecting-IP` handling first, or all edge traffic collapses to one bucket); hard compute budget 250 ms → return the greedy plan with `optimality.status = "heuristic"`.
+Plus `lastModified: lastMergeAt` (routed answers only) and a trailing `-routed` / `-estimated` geometry element (see the box at the top of §5). Shipped as: `PLAN_MAX_INFLIGHT = 2` → 503 + `Retry-After: 2`; per-IP bucket `PLAN_RATE_PER_MIN` = 20/min on `req.ip` (`trust proxy` is set, so this is `CF-Connecting-IP`) → 429. ~~per-IP bucket 30/min, 300/h~~ ~~hard compute budget 250 ms → return the greedy plan with `optimality.status = "heuristic"`~~ — **not implemented; there is no compute budget and no `optimality` object.**
 
-**Companion endpoints:** `GET /api/plan/pack?plug=GBT_DC&minKw=50` — plannable sites + the 14 seeded corridor polylines + curve/consumption constants, ~210 KB raw / ~60 KB gzipped, generated at build time into `apps/mobile/assets/plan-pack-seed.json`. `GET /api/plan/health` — snapshot version/age/build ms, site counts by plug, corridor cache state, MyTaxi breaker + budget, `p95PlanMs`, `abortedByBudget`. `/api/stations/statuses` is reused unchanged.
+**Companion endpoints:** `GET /api/plan/pack?plug=GBT_DC&minKw=50` — **NOT DONE (v2)** — plannable sites + the 14 seeded corridor polylines + curve/consumption constants, ~210 KB raw / ~60 KB gzipped, generated at build time into `apps/mobile/assets/plan-pack-seed.json`. `GET /api/plan/health` — implemented as described in the box at the top of §5 (inflight, limiter, MyTaxi breaker + budget + cache counts); ~~`p95PlanMs`, `abortedByBudget`~~ do not exist. `/api/stations/statuses` is reused unchanged.
 
-**Routing-API call budget** (`MYTAXI_API_KEY` server-side only; timeout 2500 ms, token bucket 20/min & 400/day, breaker opens for 5 min after 3 failures, single-flight per cache key):
+**Routing-API call budget** (`MYTAXI_API_KEY` server-side only; env via `src/env.ts` — `MYTAXI_BASE_URL`, `MYTAXI_TIMEOUT_MS` (default 2500, floor 500), `MYTAXI_RATE_PER_MIN` (20) and `MYTAXI_RATE_PER_DAY` (400), both floor 1, blank = default; breaker opens for 5 min after 3 **5xx / network / timeout** failures — a 4xx is a verdict on the pair, not an outage, and does not count; single-flight per cache key; **every 'success' body is validated before it is used or cached**: the polyline must decode to ≥ 2 in-range points, start within 25 km of `from` and end within 25 km of `to` (the provider snaps rural pins to the nearest road — a real cached row was snapped 13.6 km), and measure within ±15 % (min 1 km) of the reported distance — measured error on the real fixture is 0.07 %, so this never fires on genuine geometry but catches truncation, wrong units and a polyline for some other pair. Rejections and provider 4xx are remembered per key for 10 minutes so retries do not spend budget; cached rows are re-validated on read and by `pruneRouteCache()`):
 
 | scenario | calls |
 |---|---|

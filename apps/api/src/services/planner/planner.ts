@@ -92,10 +92,20 @@ export interface PlanStop {
 export interface Plan {
   label: "fastest" | "fewest-stops" | "most-buffer";
   stops: PlanStop[];
+  /**
+   * The itinerary is a strict sum: totalMin == driveMin + chargeMin + plugMin + waitMin +
+   * terminalMin. Each component is reported on its own so a client can show the arithmetic
+   * without one bucket silently absorbing another.
+   */
   totalMin: number;
+  /** Time in motion only: highway legs plus detours. Excludes queueing at busy sites. */
   driveMin: number;
   chargeMin: number;
   plugMin: number;
+  /** Modelled queueing at sites whose live status reads busy (WAIT_BUSY_MIN per such visit). */
+  waitMin: number;
+  /** T_TERMINAL_MIN — leaving the origin city and entering the destination one. */
+  terminalMin: number;
   arriveSoc: number;
   /** Lowest SoC reached anywhere on the trip — the number a nervous driver actually wants. */
   minSoc: number;
@@ -756,11 +766,16 @@ function materialize(settled: Label[], nodes: Node[], rpKm: number): Plan[] {
     for (let l: Label | null = leaf; l; l = l.parent) chain.unshift(l);
     const stops: PlanStop[] = [];
     let chargeTotal = 0;
+    // The search folded waitMin(to) into every arrival (see the expansion loop), so it sits inside
+    // leaf.t. Re-derive it here from the same function over the same visited nodes so it can be
+    // reported on its own instead of being mislabelled as driving.
+    let waitTotal = 0;
     let minSoc = chain[0].soc;
 
     for (let i = 0; i < chain.length; i++) {
       const l = chain[i];
       minSoc = Math.min(minSoc, l.soc);
+      if (i > 0) waitTotal += waitMin(nodes[l.node]);
       const next = chain[i + 1];
       if (next?.chargedTo != null) {
         const n = nodes[l.node];
@@ -786,9 +801,11 @@ function materialize(settled: Label[], nodes: Node[], rpKm: number): Plan[] {
         label: "fastest" as Plan["label"],
         stops,
         totalMin: leaf.t + T_TERMINAL_MIN,
-        driveMin: leaf.t - chargeTotal - plugMin,
+        driveMin: leaf.t - chargeTotal - plugMin - waitTotal,
         chargeMin: chargeTotal,
         plugMin,
+        waitMin: waitTotal,
+        terminalMin: T_TERMINAL_MIN,
         arriveSoc: leaf.soc / rpKm,
         minSoc: minSoc / rpKm,
       },
