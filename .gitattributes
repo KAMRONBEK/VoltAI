@@ -1,0 +1,3 @@
+# The API + its scrapers run on Linux (a Termux phone). Shell scripts MUST stay LF —
+# a CRLF shebang (`#!/.../bash\r`) fails to execute on the device.
+*.sh text eol=lf

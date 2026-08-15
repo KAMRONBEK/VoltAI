@@ -1,4 +1,3 @@
-import { MOCK_STATIONS } from '@/data/mock-stations';
 import { getJson, setJson } from '@/lib/storage/jsonStorage';
 import { StorageKeys } from '@/lib/storage/storageKeys';
 import type { Station, StationsListResult, StationStatus } from '@/types/stations';
@@ -307,20 +306,21 @@ export async function listStations(opts?: {
       : await fetchAllRawStations(baseUrl, timeoutMs);
     const stations = array.map(normalizeStation).filter((s): s is Station => s !== null);
 
-    // If we can’t parse anything sensible, still fall back to mock so the UI remains usable.
+    // If we can’t parse anything sensible, fall back to last-known-good cache.
+    // With no cache we show an empty map + error state — never fabricated stations.
     if (stations.length === 0) {
       const cached = await loadCachedStations();
       if (cached?.length) {
         return {
           stations: cached,
-          source: 'mock',
+          source: 'cache',
           apiError: 'Stations API responded, but payload was not recognized. Using cached data.',
         };
       }
       return {
-        stations: MOCK_STATIONS,
-        source: 'mock',
-        apiError: 'Stations API responded, but payload was not recognized.',
+        stations: [],
+        source: 'error',
+        apiError: 'Could not load stations right now. Pull to retry.',
       };
     }
 
@@ -333,10 +333,14 @@ export async function listStations(opts?: {
 
     const cached = await loadCachedStations();
     if (cached?.length) {
-      return { stations: cached, source: 'mock', apiError: `Offline: ${message}` };
+      return { stations: cached, source: 'cache', apiError: `Offline: ${message}` };
     }
 
-    return { stations: MOCK_STATIONS, source: 'mock', apiError: `Offline: ${message}` };
+    return {
+      stations: [],
+      source: 'error',
+      apiError: 'Offline — no stations cached yet. Check your connection and pull to retry.',
+    };
   }
 }
 

@@ -26,12 +26,23 @@ Main routes:
 
 ## Deploy (Vercel + voltai.uz)
 
+> **Only this website is on Vercel. The API is not** — it runs on an always-on Android phone
+> behind a Cloudflare Tunnel at `api.voltai.uz`. See the
+> [root README](../../README.md#production-architecture),
+> [`apps/api/RUNBOOK.md`](../api/RUNBOOK.md) (how) and
+> [`/ARCHITECTURE.md`](../../ARCHITECTURE.md) (why).
+
 1. Create a new Vercel project from this Git repo (framework: Next.js auto-detected).
 2. After the first deploy succeeds, add the domain in Vercel: `voltai.uz` (optionally also `www.voltai.uz`).
 3. Update DNS records at your domain registrar (Vercel will show the exact values to use):
    - Apex (`voltai.uz`): A record to Vercel
    - `www`: CNAME to Vercel
 4. Choose whether to redirect `www` -> apex or apex -> `www` in Vercel domain settings.
+
+> After the Gate 2 nameserver move, DNS records are edited in the **Cloudflare dashboard**, not at
+> the ahost.uz registrar. Keep the apex and `www` Vercel records **DNS-only (grey cloud)** so
+> Vercel keeps terminating TLS for them — see
+> [`apps/api/docs/GATES.md`](../api/docs/GATES.md) §Gate 2 step 2.
 
 ## Notes
 

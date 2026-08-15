@@ -1,5 +1,15 @@
 # VoltAI - Feature Specifications & User Flows
 
+> **Document status (updated 2026-08-15).** Written before the app was built. The features
+> below shipped, but several of the TypeScript shapes here are wishlist rather than reality —
+> where a field was never sourced or a sub-feature was dropped, it is now called out inline.
+> The "External APIs Required" list at the end has been corrected to what is actually consumed.
+>
+> Two facts that change how the rest reads: the app is **account-free** (no sign-in; the garage,
+> saved trips and preferences never leave the device), and the station data comes from
+> **VoltAI's own API**, which runs on an always-on Android phone — see
+> [`/ARCHITECTURE.md`](../../ARCHITECTURE.md) and [`apps/api/RUNBOOK.md`](../api/RUNBOOK.md).
+
 ## Feature 1: Map with Charger Locations
 
 ### User Stories
@@ -45,13 +55,20 @@ interface ChargerMarker {
 
 ### User Flow
 
-1. **App Launch** → Map loads with Uzbekistan view
+1. **App Launch** → Map loads with Uzbekistan view (Yandex MapKit)
 2. **Location Permission** → Request user location access
-3. **Data Loading** → Fetch charger data from API
-4. **Marker Rendering** → Display custom icons based on charger type
-5. **User Interaction** → Tap marker for details
+3. **Data Loading** → Fetch charger data from `GET /api/stations`, falling back to the last-known-good AsyncStorage cache when offline
+4. **Marker Rendering** → Display custom icons based on charger type, with the native `Clusterer` handling density
+5. **Status Polling** → `GET /api/stations/statuses` refreshes availability without refetching the catalog
+6. **User Interaction** → Tap marker to open the detail bottom sheet
 
-## Feature 2: Charger Detail Modal
+## Feature 2: Charger Detail Sheet
+
+> Shipped as a `@gorhom/bottom-sheet` (`components/stations/station-bottom-sheet.tsx`), not a
+> modal route. Fields in the shape below that were never sourced from the operator APIs and are
+> **not** displayed: `distance`, `photos`, `contact`, `amenities`, `operatingHours`,
+> `userRating`. (`working_hours` and `rating` do exist as columns on the canonical `stations`
+> row, but neither is carried into the mobile client.) There are no reviews in VoltAI.
 
 ### User Stories
 
@@ -96,12 +113,20 @@ interface ChargerDetailModal {
 
 ### User Flow
 
-1. **Marker Tap** → Open detail modal with slide-up animation
-2. **Content Display** → Show station info, photos, contact details
-3. **Action Selection** → User chooses navigate, save, or call
-4. **Modal Close** → Swipe down or tap outside to close
+1. **Marker Tap** → Open the detail sheet with a slide-up animation
+2. **Content Display** → Show station name, address, operator, connectors and live status
+3. **Action Selection** → Navigate (hand off to an installed maps app). ⏳ Save / call / share were never built — there is no favourites feature anywhere in the app.
+4. **Sheet Close** → Swipe down or tap outside to close
 
-## Feature 3: Vehicle Profile Management
+## Feature 3: Vehicle Profile Management ("the garage")
+
+> Shipped, device-local, no account. The real type is `SavedCar` in `lib/vehicles/garage.ts` and
+> it is deliberately narrower and more opinionated than the sketch below: `label`, `rangeKm` +
+> `rangeSource` (sticker figures are scaled by 0.72), a **nullable `plug`** that blocks planning
+> until answered (Uzbekistan's DC network is overwhelmingly GB/T, so a guessed plug routes you to
+> sockets that physically do not fit), `dcPeakKw`, `consWhKm` and a `curvePreset` instead of a
+> raw `chargingCurve` array. No `manufacturer`/`year`, and no live `batteryLevel` on the car —
+> state of charge is entered per trip.
 
 ### User Stories
 
@@ -146,6 +171,13 @@ interface VehicleProfile {
 4. **Compatibility Check** → Filter chargers by vehicle compatibility
 
 ## Feature 4: Trip Planner
+
+> Shipped. The plan is computed server-side by `GET /api/plan` (`apps/api/src/services/planner/`,
+> documented in `apps/api/docs/ROUTE_PLANNER.md`) and the client contract lives in
+> `lib/plan/planClient.ts`. Differences from the sketch below: the optimization knob is
+> `style: 'relaxed' | 'normal' | 'fast'` plus `temp: 'mild' | 'winter'`, not
+> `'time' | 'cost' | 'convenience'`, and the response returns a Pareto set of `options` rather
+> than one plan. ⏳ Per-stop monetary **cost** is not computed anywhere in the planner.
 
 ### User Stories
 
@@ -195,11 +227,17 @@ interface ChargingStop {
 
 ## Feature 5: Personalization & Saved Data
 
+> Partly shipped. **Saved trips** exist (`lib/plan/planHistory.ts`, `app/plan/history.tsx`), all
+> on-device. ⏳ **Favourite stations and notifications were never built** — there is no favourites
+> code anywhere in the app and no `expo-notifications` dependency. The shipped settings type is
+> `AppSettings` in `lib/settings/appSettings.ts` and today it holds exactly one field,
+> `themePreference`; the richer `UserPreferences` below is intent, not reality.
+
 ### User Stories
 
-- **As a user**, I want to save my favorite charging stations
-- **As a user**, I want to save frequently used routes
-- **As a user**, I want to receive notifications for saved stations
+- **As a user**, I want to save my favorite charging stations *(not built)*
+- **As a user**, I want to save frequently used routes *(shipped)*
+- **As a user**, I want to receive notifications for saved stations *(not built)*
 
 ### Technical Specifications
 
@@ -231,14 +269,21 @@ interface UserPreferences {
 
 ### User Flow
 
-1. **Station Saving** → Tap save icon on charger detail
+1. ⏳ **Station Saving** → not built
 2. **Route Saving** → Save trip plan after creation
-3. **Notification Setup** → Configure alerts in settings
-4. **Quick Access** → Access saved items from favorites tab
+3. ⏳ **Notification Setup** → not built
+4. **Quick Access** → Saved trips from the Route tab; vehicles from Settings → Garage. There is no Favorites tab.
 
 ## Data Models Summary
 
 ### Core Data Structures
+
+> Sketch only. The authoritative shapes are `apps/api/src/db/schema.ts` (canonical SQLite
+> `stations` row) and `apps/mobile/lib/stations/stationsClient.ts` (client type). Differences
+> that matter: there is **no `UserData`** — the app is account-free, so there is no user record,
+> no charging history and no server-side trip history; `reviews` and `amenities` do not exist;
+> and `TripData` carries **no `weather` and no `traffic`** objects, because neither API is
+> integrated — the only environmental input is the user-chosen `mild` / `winter` derate.
 
 ```typescript
 // Charging Station
@@ -275,20 +320,25 @@ interface TripData {
 
 ## Integration Points
 
-### External APIs Required
+### External APIs actually used
 
-1. **Maps API** - Display and navigation
-2. **Charging Station API** - Real-time data
-3. **Routing API** - Trip planning
-4. **Weather API** - Range adjustment
-5. **Traffic API** - ETA calculations
+1. **Yandex MapKit** — map rendering, markers and clustering, called from the mobile app. Client-side key (`YANDEX_MAPKIT_API_KEY` / `EXPO_PUBLIC_YANDEX_MAPKIT_API_KEY`, see `.env.example`). Flavor `lite`, which is why there is no geocoding or place-suggest.
+2. **VoltAI's own API** (`https://api.voltai.uz`) — stations and live statuses. This is not a third party: it is the Express service on the always-on Android phone, which scrapes the operators' own APIs in-process and merges them. **There is no third-party "Charging Station API".**
+3. **MyTaxi routing** (`https://proxy.mytaxi.uz/v1`) — road geometry for trip planning, called **server-side only** from `apps/api` (`src/services/routing/mytaxi.ts`). `MYTAXI_API_KEY` lives in `apps/api/.env` and deliberately never ships in the mobile bundle: an `EXPO_PUBLIC_` key is extractable from any shipped build, and rotating it would break every installed copy at once. Results are cached in the `route_cache` table.
+4. ~~**Weather API**~~ — not integrated. Cold-weather range loss is handled by a *user-selected* `mild` / `winter` derate in the plan request, not by fetching a forecast.
+5. ~~**Traffic API**~~ — not integrated. Drive time is modelled from distance; there is no live-traffic term (the routing provider's own ETA is deliberately discarded as unreliable).
+
+Navigation itself is a hand-off: `react-native-map-link` opens whichever maps app the user has
+installed. VoltAI does not implement turn-by-turn.
 
 ### Local Storage
 
-- Vehicle profiles
-- Saved stations and routes
-- User preferences
-- Offline charger data
-- Trip history
+Everything the user configures is device-local (AsyncStorage via `lib/storage/jsonStorage.ts`)
+and is never sent to the server — the app is account-free:
+
+- Vehicle profiles (the garage)
+- Saved trips
+- App preferences (`themePreference`)
+- Offline charger data (last-known-good station cache)
 
 This specification provides detailed technical requirements and user flows for implementing all requested features in the VoltAI application.

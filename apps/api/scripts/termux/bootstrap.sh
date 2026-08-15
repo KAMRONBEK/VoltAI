@@ -17,7 +17,8 @@ echo "==> Installing packages"
 pkg update -y && pkg upgrade -y
 # nodejs-lts (not nodejs/current — its ABI has broken on arm64 before); cloudflared is the
 # Termux-built arm64 binary (the GitHub release is glibc and won't run under bionic).
-pkg install -y nodejs-lts git termux-services termux-api cloudflared rclone
+# sqlite = the sqlite3 CLI backup.sh needs for hot DB snapshots + integrity checks.
+pkg install -y nodejs-lts git termux-services termux-api cloudflared rclone sqlite
 
 echo "==> Storage access (for backups / capture bridge)"
 termux-setup-storage || true

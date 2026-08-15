@@ -43,7 +43,7 @@ export interface Station {
   contact?: StationContact;
 }
 
-export type StationsSource = 'api' | 'mock';
+export type StationsSource = 'api' | 'cache' | 'error';
 
 export interface StationsListResult {
   stations: Station[];

@@ -28,6 +28,17 @@ export function getDb(): Database {
   // WAL is unavailable under node-sqlite3-wasm's SQLITE_OS_OTHER VFS (no shared memory),
   // so use TRUNCATE + FULL sync — the phone can be OOM-killed or unplugged, and writes are
   // infrequent (a few times an hour), so durability is worth the fsync.
+  //
+  // This covers the DATA and it was crash-tested (2026-08-15): SIGKILL mid-transaction, the
+  // journal rolled back cleanly on reopen, integrity_check = ok, all 1226 rows intact.
+  //
+  // ⚠️ It does NOT cover STARTUP. This VFS takes its write lock as a `<db>.lock` DIRECTORY on
+  // disk, not an advisory fcntl lock, so an unclean kill during a write transaction leaves that
+  // directory behind. Every subsequent open then throws `SQLite3Error: database is locked` — the
+  // phone comes back from a reboot serving nothing, and runit will restart-loop the process
+  // forever, because nothing here clears a stale lock. Recovery today is manual:
+  // `rmdir "$SQLITE_PATH.lock"` (safe only when no other node process is running). Clearing it
+  // automatically in getDb() is the obvious fix and is not implemented.
   database.exec("PRAGMA journal_mode = TRUNCATE");
   database.exec("PRAGMA synchronous = FULL");
   database.exec("PRAGMA foreign_keys = ON");

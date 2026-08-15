@@ -1,50 +1,72 @@
-# Welcome to your Expo app 👋
+# VoltAI Mobile
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+The VoltAI EV-charging app for Uzbekistan — map of charging stations, live connector statuses,
+trip planner, garage and saved trips. Expo SDK 57 / React Native 0.86 / React 19.2, with
+file-based routing via `expo-router` (screens live in `app/`).
 
-## Get started
+## Expo Go is NOT supported
 
-1. Install dependencies
-
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+The map is [`expo-yandex-mapkit`](https://www.npmjs.com/package/expo-yandex-mapkit), which ships
+native code. Expo Go cannot load it — you need a **development build**:
 
 ```bash
-npm run reset-project
+npm install
+npx expo prebuild --clean
+npx expo run:android      # or: npx expo run:ios
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+After the first native build, day-to-day work is just `npx expo start` against that dev build.
+Anything that changes native config (app icon, splash, plugins, the MapKit key baked in at build
+time) requires another `prebuild` + `run:` cycle.
+
+> ⚠️ Do **not** run `npm run reset-project`. That script is left over from `create-expo-app`; it
+> moves `app/` aside into `app-example/` and creates a blank one — i.e. it would move the real
+> VoltAI app out of the way.
+
+## Environment
+
+Copy [`.env.example`](.env.example) to `.env`:
+
+```bash
+cp .env.example .env
+```
+
+- `YANDEX_MAPKIT_API_KEY` — **required**. The Yandex MapKit Mobile SDK key, read by
+  `app.config.ts` and baked into the native build. Get one at
+  [developer.tech.yandex.ru](https://developer.tech.yandex.ru); activation takes ~15 min.
+  Without it the map will not render.
+- `EXPO_PUBLIC_YANDEX_MAPKIT_API_KEY` — dev convenience: the same value inlined into the JS
+  bundle so it can be swapped with a Metro reload instead of a native rebuild.
+- `EXPO_PUBLIC_API_BASE_URL` — optional override of the API base URL (default
+  `https://api.voltai.uz`). Useful for pointing at a locally-run API, e.g.
+  `http://127.0.0.1:8080` through `adb reverse tcp:8080 tcp:8080`.
+
+There is deliberately **no MyTaxi key here** — route planning happens server-side, so that key
+lives in `apps/api/.env`. An `EXPO_PUBLIC_` key is extractable from any shipped bundle.
+
+## Where the data comes from
+
+The app reads from the VoltAI API at **`https://api.voltai.uz`** (`/api/stations`,
+`/api/stations/statuses`, `/api/plan`). That API is not a cloud service: it is served from a
+single always-on Android phone running Express + embedded SQLite + the operator scrapers, exposed
+through an outbound Cloudflare Tunnel. See
+[**Production architecture** in the root README](../../README.md#production-architecture), with
+the detail in [`/ARCHITECTURE.md`](../../ARCHITECTURE.md) and
+[`apps/api/RUNBOOK.md`](../api/RUNBOOK.md).
+
+The app is account-free: there is no sign-in, and the garage and saved trips are stored on-device
+in AsyncStorage.
+
+## Scripts
+
+```bash
+npm run start      # Metro (against an installed dev build)
+npm run android    # native build + run on a connected device/emulator
+npm run ios
+npm run lint
+```
 
 ## Learn more
 
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- [Expo documentation](https://docs.expo.dev/) and [development builds](https://docs.expo.dev/develop/development-builds/introduction/)
+- [`expo-router` file-based routing](https://docs.expo.dev/router/introduction)

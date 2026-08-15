@@ -19,8 +19,18 @@ call it directly from the backend — no phone in the request path:
 
 Each source lives in `scrapers/apps/<name>.ts` as an `AppScraperConfig`. Adding
 `http: [{ url }]` opts it into the off-device scraper (`scrapers/http/`), which
-fetches the URL and runs the source's `parseResponse`. The API process scrapes on
-boot and on `SCRAPE_CRON` (default every 10 min), upserts raw rows, and merges.
+fetches the URL and runs the source's `parseResponse`. The API process scrapes once
+immediately on boot and then **reschedules itself with a random 3–5 min gap measured
+after each run completes** (`SCRAPE_MIN_MINUTES` / `SCRAPE_MAX_MINUTES`, defaults 3
+and 5 — `src/index.ts:88-126`), upserts raw rows, and **merges inline at the end of
+every cycle**.
+
+> The randomized gap is anti-fingerprinting: a perfectly periodic poll from one
+> account is trivial for an operator API to flag. Runs never overlap — the next
+> delay only starts once the previous scrape has finished.
+>
+> ⚠️ `SCRAPE_CRON` is **dead** — no code reads it. This doc used to say "every 10 min"
+> and `.env.example` said 5; both were wrong. Only the code is right.
 
 Manual run: `npm run scrape:http` (dry-run, prints counts) /
 `npm run scrape:http -- --ingest` (POST to a running API's `/ingest`).
@@ -29,20 +39,24 @@ Manual run: `npm run scrape:http` (dry-run, prints counts) /
 
 | Operator | Package | Stack | Auth | Result |
 |---|---|---|---|---|
-| **Tokbor** | `uz.tokbor.tokbor` | Flutter | login-replay | ✅ ~664 named stations (1127 pins) |
-| **Spectre Energy** | `uz.spectreEnergy.uz` | Flutter | none | ✅ ~675 points → ~368 stations |
-| **K-Watt** | `org.uicgroup.kwattapp` | Flutter | none | ✅ 88 stations / 205 connectors |
-| **Beon** | `uz.beonapp.uz` | Flutter | login-replay | 🟡 wired — pending one-time OTP login |
-| **Pro-Tok** | `com.fintech_projects.fintech_project1` | Flutter | login-replay | 🟡 wired — auth shape + one-time OTP pending |
+| **Tokbor** | `uz.tokbor.tokbor` | Flutter | login-replay | ✅ 677 named stations (1,140 pins) |
+| **Spectre Energy** | `uz.spectreEnergy.uz` | Flutter | none | ✅ 687 points → 373 stations |
+| **K-Watt** | `org.uicgroup.kwattapp` | Flutter | none | ✅ 88 raw → 87 stations / 205 connectors |
+| **Beon** | `uz.beonapp.uz` | Flutter | login-replay | ✅ 90 sites → 89 stations — logged in 2026-08-07, token valid to 2027-08-07 |
+| **Pro-Tok** | `com.fintech_projects.fintech_project1` | Flutter | login-replay | 🟡 wired — auth shape + one-time OTP pending (0 rows) |
 | **Megawatt** | `com.charging123.megawatt` | React Native | **required** | ⛔ blocked (hardware attestation — see below) |
 
-Combined live: **~1890 raw → ~1117 canonical stations**, verified end-to-end on the
-Yandex map on-device (operator-logo markers, clustering, price/power/connectors).
+Combined live (**snapshot, measured 2026-08-15**): **2,005 raw → 1,226 canonical
+stations** — tokbor 677, spectre 373, beon 89, k-watt 87 by primary source. Verified
+end-to-end on the Yandex map on-device (operator-logo markers, clustering,
+price/power/connectors). Re-check with
+`SELECT primary_source, COUNT(*) FROM stations GROUP BY primary_source;` against
+`data/voltai.sqlite`; the numbers drift as operators add sites.
 
 ## Working endpoints
 
 ### Spectre Energy — `scrapers/apps/spectre-energy.ts`
-- `GET https://api.spectre-energy.uz/api/v2/station/statuses/` → array of ~675
+- `GET https://api.spectre-energy.uz/api/v2/station/statuses/` → array of ~687 (2026-08-15)
   connector-points: `{ id, name, status_id, location:{latitude,longitude},
   energy_power }`. No auth. (The `/stations/` list endpoint omits coordinates;
   `/statuses/` is the geo source.)
@@ -70,15 +84,15 @@ login over plain HTTP with the user's own number, store the token, scrape with i
 - CLI: `npm run auth:tokbor -- send "+998…"` then `-- verify <code>`. Token stored
   in `data/auth-tokens.json` (gitignored, mode 0600).
 - Stations: `GET https://api.newtokbor.uz/charging-station` **requires** an
-  `app-version` header (else 400 "Ilova versiyasi talab qilinadi"). Returns ~1128
-  pins `{id, lat, lng, status, type}`. No name in the list.
+  `app-version` header (else 400 "Ilova versiyasi talab qilinadi"). Returns ~1,140
+  pins `{id, lat, lng, status, type}` (2026-08-15). No name in the list.
 - **Enrichment**: `npm run enrich:tokbor` fetches `GET /charging-station/{id}` for
   every station (concurrency-limited, uses the stored login) and caches
   name/address/capacity/electricityFee/idleFee to `data/tokbor-details.json`
   (gitignored). The scraper merges that cache with the live status list each tick,
   so pins carry real names ("High town mall 120kW"), power, and UZS pricing. Re-run
   occasionally to pick up new stations. Named multi-connector pins collapse to real
-  stations in the merge (~1127 pins → ~664 canonical Tokbor).
+  stations in the merge (~1,140 pins → 677 canonical Tokbor, 2026-08-15).
 - `status`: AVAILABLE / UNAVAILABLE / MAINTENANCE / POWEROFF / EMERGENCY_STOP.
   `type`: DC / HYBRID / AC / ULTRA.
 
@@ -86,14 +100,17 @@ login over plain HTTP with the user's own number, store the token, scrape with i
 
 Flutter, base `https://api.v2.beon-app.com`. Auth-gated, **no captcha / no attestation** — same
 recipe as Tokbor.
-- Login: `POST /auth/login {phoneNumber}` → SMS OTP → `POST /auth/verify-otp {phoneNumber, otp}` →
-  bearer. Endpoints confirmed live; the exact success-body shape is read on the first login
-  (`pickToken` scans common shapes).
+- Login: `POST /auth/login {phoneNumber}` → SMS OTP → `POST /auth/verify-otp {code}` with
+  `Authorization: Bearer <tempToken>` → bearer. **The verify call takes ONLY the code**: passing
+  `phoneNumber` is rejected ("not allowed") and omitting the bearer is rejected
+  ("TOKEN_IS_NOT_PROVIDED") — see `scrapers/auth/beon.ts:11-12`.
 - Stations: `GET /map` (bearer). Unauth → `403 AUTHORIZATION_MISSING`. `parseBeon` is defensive
-  (array / `{data}` / GeoJSON) — finalize connector/status/price mapping after the first response.
-- **Activate:** `npm run auth:beon -- send "+998…"` → `-- verify <code>` → then the cron scrapes it.
-- **Open question:** token longevity (Tokbor's was ~365 d; Beon's is unverified — confirm on first
-  login; if short-lived, `refresh()` tries the common shapes, else re-run the OTP login).
+  (array / `{data}` / GeoJSON).
+- **Activate:** `npm run auth:beon -- send "+998…"` → `-- verify <code>` → then the scrape loop
+  picks it up. **Already done — logged in 2026-08-07; live since.**
+- **Resolved (was: token longevity):** Beon's access token is a **~365-day JWT** (iat 2026-08-07,
+  exp **2027-08-07**) and **no refresh token is returned**, so `refresh()` is inert — renewal is a
+  manual OTP re-login, exactly like Tokbor. Diarise the re-login before 2027-08-07.
 
 ### Pro-Tok — `scrapers/apps/pro-tok.ts` + `scrapers/auth/pro-tok.ts` (login-replay, shape TBD)
 
@@ -140,4 +157,14 @@ extraction.
 
 ## pro-tok & beon — now discovered
 Their APKs were pulled off apkcombo (Flutter, both auth-gated) and wired as login-replay sources
-(see the Beon / Pro-Tok sections above). They just need a one-time OTP login to go live.
+(see the Beon / Pro-Tok sections above). **Beon is live** (OTP login done 2026-08-07). **Pro-Tok is
+still waiting** on its one-time OTP login — it is wired but returns 0 rows as of 2026-08-15.
+
+---
+
+## Where this runs
+
+These scrapers are not a separate job: they run **in-process inside the API**, which runs on a single
+always-on Android phone under Termux (Node LTS, port 8080, runit-supervised), exposed at
+`https://api.voltai.uz` by an outbound Cloudflare Tunnel. Deployment steps: [`../RUNBOOK.md`](../RUNBOOK.md).
+Why it is built this way: [`../../../ARCHITECTURE.md`](../../../ARCHITECTURE.md).

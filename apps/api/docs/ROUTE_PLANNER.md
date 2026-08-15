@@ -43,10 +43,19 @@ Measured on the real corridor (Tashkent → Qarshi, recorded MyTaxi polyline, re
 route 453.9 km · 351 on-corridor candidates thinned to 24 · `planRoute` 54 ms in V8 ·
 worst charger-free stretch **135.0 km (km 317 → 452), ending at the destination**.
 
-ARCHITECTURE NOTE: the API and scrapers are moving into the mobile app, with one dedicated phone
-serving other installs and expo-sqlite replacing node-sqlite3-wasm. The planner modules above are
-deliberately pure (no Node, Express or SQLite imports) so they move verbatim. Section 5 (API design)
-and section 6 (mobile design) below predate that decision and describe a separate Node backend.
+ARCHITECTURE NOTE: the planner modules above are deliberately **pure** — no Node, Express or SQLite
+imports — so they can be exercised from a plain script (`scripts/plan-check.ts`) and stay portable.
+Keep them that way.
+
+> **Correction (2026-08-15).** This note previously claimed the API and scrapers were "moving into
+> the mobile app", with one dedicated phone serving other installs and `expo-sqlite` replacing
+> `node-sqlite3-wasm`. **That is not the architecture and never shipped.** The API and the scrapers
+> stay a **Node/Express process running under Termux on the dedicated always-on Android phone**, with
+> **`node-sqlite3-wasm`** as the store and a Cloudflare Tunnel dialing out to serve
+> `https://api.voltai.uz`. Nothing moves into the Expo app; there is no `expo-sqlite`. Section 5 (API
+> design) and section 6 (mobile design) below describe a separate Node backend, which is correct and
+> current. Why: [`../../../ARCHITECTURE.md`](../../../ARCHITECTURE.md) · How it is deployed:
+> [`../RUNBOOK.md`](../RUNBOOK.md).
 
 ---
 
@@ -673,9 +682,9 @@ Strict priority order.
 Ordered by what stops work.
 
 **8.1 — Production API returns 500. HARD BLOCKER, 0.5 d.**
-`api.voltai.uz` returns `500 FUNCTION_INVOCATION_FAILED` with `server: Vercel`. Two independent structural causes: (a) `node-sqlite3-wasm` loads its binary via `readFileSync(__dirname + "/node-sqlite3-wasm.wasm")`, a dynamic path `@vercel/node`'s file tracing does not follow, so the module throws at init — which is why you get `INVOCATION_FAILED` rather than the app's own 500 JSON handler; (b) `getDb()` additionally `mkdirSync`s into a read-only lambda FS with no `voltai.sqlite` deployed (`data/` is gitignored). **Vercel cannot host this API at all.** Do not debug the function. Finish the intended migration per `RUNBOOK.md` §4 (`cloudflared tunnel route dns voltai-api api.voltai.uz`) and delete `vercel.json` + `api/index.ts`, both already listed for deletion in `ARCHITECTURE.md` §7. This blocks the whole app, not just this feature.
+`api.voltai.uz` returns `500 FUNCTION_INVOCATION_FAILED` with `server: Vercel`. Two independent structural causes: (a) `node-sqlite3-wasm` loads its binary via `readFileSync(__dirname + "/node-sqlite3-wasm.wasm")`, a dynamic path `@vercel/node`'s file tracing does not follow, so the module throws at init — which is why you get `INVOCATION_FAILED` rather than the app's own 500 JSON handler; (b) `getDb()` additionally `mkdirSync`s into a read-only lambda FS with no `voltai.sqlite` deployed (`data/` is gitignored). **Vercel cannot host this API at all.** Do not debug the function. Finish the intended migration per `RUNBOOK.md` §4 (`cloudflared tunnel route dns voltai-api api.voltai.uz`) and delete `vercel.json` + `api/index.ts`, both listed for deletion in `ARCHITECTURE.md` §7 — ⏳ **still outstanding as of 2026-08-15**; both files are still tracked and still deploy the 500-ing function. This blocks the whole app, not just this feature.
 
-**8.2 — The merge stall. 1 d, not optional.**
+**8.2 — The merge stall. 1 d, not optional.** ✅ **FIXED (2026-08-15)** — the grid-bucket rewrite below shipped: 8966 ms → 180 ms, output byte-identical, guarded by `scripts/merge-check.ts` (see the status table above). The diagnosis below is kept verbatim, in the present tense it was written in, for the reasoning.
 `mergeStations()`'s dedup is an O(n²) `merged.findIndex()` over 1985 raw rows performing 1,091,767 distance + name-similarity comparisons, measured at **6.0–6.5 s of fully synchronous, event-loop-blocking CPU on a fast desktop**, re-run after every scrape (self-rescheduling at 3–5 min). On the phone that is plausibly 25–50 s. It caps p95 plan latency and it costs more battery and thermal headroom than every planner optimization combined. Fix: grid-bucket candidates by ~0.001° so only the 9 neighbouring cells are compared, and hoist `nameSimilarity`'s two regex normalizations and three Set constructions out of the inner loop.
 
 **8.3 — Data cleanup that must precede any planning.**
