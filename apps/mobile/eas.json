@@ -18,15 +18,16 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk",
-        "gradleCommand": ":app:assembleRelease -PreactNativeArchitectures=arm64-v8a"
+        "gradleCommand": ":app:assembleRelease -PreactNativeArchitectures=arm64-v8a",
+        "credentialsSource": "local"
       },
       "ios": {
-        "simulator": false
+        "simulator": false,
+        "credentialsSource": "remote"
       },
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://api.voltai.uz"
-      },
-      "credentialsSource": "local"
+      }
     },
     "preview-local": {
       "extends": "preview",
@@ -37,12 +38,15 @@
     "production": {
       "autoIncrement": true,
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "app-bundle",
+        "credentialsSource": "local"
       },
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://api.voltai.uz"
       },
-      "credentialsSource": "local"
+      "ios": {
+        "credentialsSource": "remote"
+      }
     }
   },
   "submit": {

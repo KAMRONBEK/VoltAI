@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "uz.voltai.app",
-      "supportsTablet": true
+      "supportsTablet": false
     },
     "android": {
       "package": "uz.voltai.app",
