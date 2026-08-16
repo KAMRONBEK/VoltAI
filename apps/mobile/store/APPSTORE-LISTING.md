@@ -101,8 +101,9 @@ Answer **Yes** to "Do you collect data?", then:
   - Linked to the user's identity: **No**
   - Used for tracking: **No**
   - (Context, not a separate answer: on the map, location is used on-device; when planning a trip
-    the chosen coordinates are sent to VoltAI's server and a routing provider to compute the route —
-    still App Functionality, no identifier attached.)
+    the chosen coordinates are sent to VoltAI's server and a routing provider to compute the route,
+    then discarded — user-chosen coordinates are never stored server-side. Still App Functionality,
+    no identifier attached.)
 - **Everything else: Not Collected.** No analytics, no diagnostics, no advertising, no identifiers,
   no contact info, no user content.
 - **Data used to track you: None.**

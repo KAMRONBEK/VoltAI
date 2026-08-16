@@ -93,6 +93,68 @@ const bucket: BucketState = { minuteStart: 0, minuteCount: 0, dayStart: 0, dayCo
 let consecutiveFailures = 0;
 let breakerOpenUntil = 0;
 
+/**
+ * PRIVACY BOUNDARY — nothing derived from a USER-CHOSEN location is ever written to storage.
+ *
+ * Routes are only PERSISTED (route_cache table, 90-day TTL) when BOTH endpoints are preset cities
+ * from the app's fixed destination list below — those pairs are app content (a static city matrix),
+ * not anyone's whereabouts. A route involving any other point (a dropped pin, "from my position")
+ * lives in a small in-memory cache for at most MEMORY_TTL_MS and dies with the process; it exists
+ * only so a retry / back-navigation does not re-spend provider budget. The startup prune deletes
+ * any historical non-city rows from disk.
+ */
+const PRESET_CITIES: Array<[number, number]> = [
+  [41.311081, 69.240562], // Tashkent
+  [39.654321, 66.959724], // Samarkand
+  [39.767072, 64.421242], // Bukhara
+  [38.861034, 65.78903],  // Qarshi
+  [40.115501, 67.842205], // Jizzakh
+  [40.489399, 68.78415],  // Guliston
+  [40.084146, 65.379005], // Navoiy
+  [37.224443, 67.278122], // Termez
+  [39.057999, 66.833],    // Shahrisabz
+  [41.550205, 60.631523], // Urgench
+  [41.378601, 60.363602], // Khiva
+  [42.460266, 59.617126], // Nukus
+  [40.386681, 71.783279], // Fergana
+  [40.998497, 71.671295], // Namangan
+  [40.783363, 72.350281], // Andijan
+  [41.019722, 69.343056], // Nurafshon
+];
+const PRESET_KEYS = new Set(PRESET_CITIES.map(([lat, lng]) => `${lat.toFixed(3)},${lng.toFixed(3)}`));
+
+function isPresetPoint(p: LatLng): boolean {
+  return PRESET_KEYS.has(`${p.lat.toFixed(3)},${p.lng.toFixed(3)}`);
+}
+
+/** Both endpoints are preset cities → the route is app content and may be persisted. */
+function isCityPair(from: LatLng, to: LatLng): boolean {
+  return isPresetPoint(from) && isPresetPoint(to);
+}
+
+const MEMORY_TTL_MS = 60 * 60 * 1000; // user-pin routes: memory only, gone within the hour/restart
+const MEMORY_MAX_ENTRIES = 300;
+const memoryRoutes = new Map<string, { until: number; geo: RouteGeometry }>();
+
+function readMemoryRoute(key: string): RouteGeometry | null {
+  const hit = memoryRoutes.get(key);
+  if (!hit) return null;
+  if (Date.now() > hit.until) {
+    memoryRoutes.delete(key);
+    return null;
+  }
+  return hit.geo;
+}
+
+function writeMemoryRoute(key: string, geo: RouteGeometry): void {
+  while (memoryRoutes.size >= MEMORY_MAX_ENTRIES) {
+    const oldest = memoryRoutes.keys().next().value;
+    if (oldest === undefined) break;
+    memoryRoutes.delete(oldest);
+  }
+  memoryRoutes.set(key, { until: Date.now() + MEMORY_TTL_MS, geo: { ...geo, source: "cache" } });
+}
+
 /** In-flight requests by cache key, so N identical plans cost one upstream call. */
 const inFlight = new Map<string, Promise<RoutingResult>>();
 
@@ -244,6 +306,20 @@ const PRUNE_SCAN_ROWS = 100;
  * visited; rows are also validated on read, so this is belt-and-braces, not the only defence.
  */
 export function pruneRouteCache(): number {
+  // Privacy guard: purge any persisted route that is not a preset-city pair (historical rows from
+  // before the memory-only rule, or anything that slipped through). User pins never live on disk.
+  try {
+    const rows = getDb().all("SELECT k FROM route_cache") as Array<{ k: string }>;
+    for (const row of rows) {
+      const ends = parseRouteCacheKey(row.k);
+      if (!ends || !isCityPair(ends.from, ends.to)) {
+        getDb().run("DELETE FROM route_cache WHERE k = ?", [row.k]);
+      }
+    }
+  } catch {
+    /* table scan is best-effort */
+  }
+
   const db = getDb();
   const cutoff = new Date(Date.now() - CACHE_TTL_MS).toISOString();
   let deleted = db.run("DELETE FROM route_cache WHERE fetched_at < ?", [cutoff]).changes;
@@ -411,7 +487,8 @@ function recordFailure(): void {
 export async function getRoute(from: LatLng, to: LatLng): Promise<RoutingResult> {
   const key = routeCacheKey(from, to);
 
-  const cached = readCachedRoute(key);
+  const persistable = isCityPair(from, to);
+  const cached = persistable ? readCachedRoute(key) : readMemoryRoute(key);
   if (cached) return { ok: true, ...cached };
 
   const remembered = readNegative(key, Date.now());
@@ -422,8 +499,10 @@ export async function getRoute(from: LatLng, to: LatLng): Promise<RoutingResult>
 
   const promise = (async (): Promise<RoutingResult> => {
     const { result, negative: negativeVerdict } = await fetchFromProvider(from, to);
-    // Only validated geometry is written: everything below the `ok` branch was rejected above.
-    if (result.ok) writeCachedRoute(key, "mytaxi", result);
+    // Only validated geometry is written — and only CITY-PAIR routes ever reach disk; a route
+    // involving a user-chosen point is remembered in memory alone (see the privacy boundary above).
+    if (result.ok && persistable) writeCachedRoute(key, "mytaxi", result);
+    else if (result.ok) writeMemoryRoute(key, result);
     else if (negativeVerdict) writeNegative(key, result, Date.now());
     return result;
   })().finally(() => inFlight.delete(key));
