@@ -15,6 +15,13 @@ Why it is built this way: [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md).
 > limit 20 req/10 s per IP on `/api/plan*`. **The nameserver switch at ahost.uz was submitted; the
 > zone goes Active once the .uz registry publishes `carmelo/lauryn.ns.cloudflare.com`.**
 
+> ✅ **CUT OVER — LIVE (2026-08-16 ~13:45 Tashkent).** The `voltai.uz` zone is **Active on Cloudflare**
+> (`carmelo`/`lauryn.ns.cloudflare.com`), `api.voltai.uz` → tunnel `voltai-api` (proxied), and
+> `https://api.voltai.uz` **serves the phone**: `scripts/smoke.sh https://api.voltai.uz` = ALL OK,
+> `cf-cache-status: HIT` on `/api/stations*`, `/api/health*` DYNAMIC (never cached), `/ingest` → 404
+> at the edge. Website (apex, DNS-only → Vercel), MX/SPF/DKIM/DMARC all resolve as before. Gate 2 is
+> **closed**; everything below that says "still open / HTTP 500 / pending" is history.
+
 ## Reliability caveats — read before you trust a phone with this
 - **Android 15 kills long-running Termux processes** even with wake-lock + battery-unrestricted
   (termux-app#5150). The mitigations in §1 are therefore mandatory, not optional.

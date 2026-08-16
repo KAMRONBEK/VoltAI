@@ -138,6 +138,13 @@ npm run api:build
   5–8 minutes. Manual/uncommitted deploys: `bash apps/api/scripts/phone/deploy.sh` (same apply
   path over ssh).
 
+> ✅ **CUT OVER — LIVE (2026-08-16 ~13:45 Tashkent).** The `voltai.uz` zone is **Active on Cloudflare**
+> (`carmelo`/`lauryn.ns.cloudflare.com`), `api.voltai.uz` → tunnel `voltai-api` (proxied), and
+> `https://api.voltai.uz` **serves the phone**: `scripts/smoke.sh https://api.voltai.uz` = ALL OK,
+> `cf-cache-status: HIT` on `/api/stations*`, `/api/health*` DYNAMIC (never cached), `/ingest` → 404
+> at the edge. Website (apex, DNS-only → Vercel), MX/SPF/DKIM/DMARC all resolve as before. Gate 2 is
+> **closed**; everything below that says "still open / HTTP 500 / pending" is history.
+
 > **Status (verified on the phone over ssh, 2026-08-16):** the backend is **deployed and
 > supervised** on the ASUS Zenfone 10 (Android 15) — runit services `voltai-api`,
 > `voltai-watchdog`, `voltai-backup`, `sshd` (and `cloudflared`, kept down until configured), a

@@ -1,5 +1,12 @@
 # VoltAI — Remaining launch gate: DNS
 
+> ✅ **CUT OVER — LIVE (2026-08-16 ~13:45 Tashkent).** The `voltai.uz` zone is **Active on Cloudflare**
+> (`carmelo`/`lauryn.ns.cloudflare.com`), `api.voltai.uz` → tunnel `voltai-api` (proxied), and
+> `https://api.voltai.uz` **serves the phone**: `scripts/smoke.sh https://api.voltai.uz` = ALL OK,
+> `cf-cache-status: HIT` on `/api/stations*`, `/api/health*` DYNAMIC (never cached), `/ingest` → 404
+> at the edge. Website (apex, DNS-only → Vercel), MX/SPF/DKIM/DMARC all resolve as before. Gate 2 is
+> **closed**; everything below that says "still open / HTTP 500 / pending" is history.
+
 > **Read this first (2026-08-16).** The backend is written **and running on the phone** (see
 > [`../RUNBOOK.md`](../RUNBOOK.md) status) — this is no longer a "before you write code" checklist,
 > it is the one owner action between a working phone and a public `https://api.voltai.uz`.

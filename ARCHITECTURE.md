@@ -9,6 +9,13 @@
 > | **B. Data source** — originally: move charger-app JSON capture onto a physical, always-on Android phone, capturing on-device with **no root**. | ⛔ **ABANDONED — decision reversed.** On-device TLS interception was tried and failed (Android 15, no root, Flutter apps with pinning; reFlutter crashed the app). It is **superseded by off-device HTTP scraping** of each operator's own reverse-engineered API, called in-process by the API. Source of truth: [`apps/api/docs/SCRAPERS.md`](apps/api/docs/SCRAPERS.md). The capture design is kept below (§5.1-§5.2) for history only. |
 > | **C. Backend** — the same phone **is** the backend: Termux + Node + embedded SQLite + Cloudflare Tunnel serving `api.voltai.uz`. Vercel + MongoDB Atlas are retired. | 🟢 **DEPLOYED ON THE PHONE (2026-08-16), supervised.** Runs on the ASUS Zenfone 10 (AI2302, Android 15) under Termux: runit services `voltai-api`, `voltai-watchdog`, `voltai-backup`, `sshd` (+ `cloudflared`, down until configured), Termux:Boot hook `~/.termux/boot/00-voltai` (wake-lock + `service-daemon start`), a real on-disk DB at `~/voltai/data/voltai.sqlite`, ~1,222 canonical stations (Tokbor, Spectre, K-Watt, Beon), `/api/plan` live with the MyTaxi key, repeatable deploys via `scripts/phone/deploy.sh`, and the **encrypted backup + restore drill done once**. **Still open:** Gate 2 (DNS, §9) and the Cloudflare tunnel (RUNBOOK §4) — until then the API answers only on the phone (`127.0.0.1:8080`) or over `adb forward`; plus the owner items in §8 Phase 5/6. |
 >
+> ✅ **CUT OVER — LIVE (2026-08-16 ~13:45 Tashkent).** The `voltai.uz` zone is **Active on Cloudflare**
+> (`carmelo`/`lauryn.ns.cloudflare.com`), `api.voltai.uz` → tunnel `voltai-api` (proxied), and
+> `https://api.voltai.uz` **serves the phone**: `scripts/smoke.sh https://api.voltai.uz` = ALL OK,
+> `cf-cache-status: HIT` on `/api/stations*`, `/api/health*` DYNAMIC (never cached), `/ingest` → 404
+> at the edge. Website (apex, DNS-only → Vercel), MX/SPF/DKIM/DMARC all resolve as before. Gate 2 is
+> **closed**; everything below that says "still open / HTTP 500 / pending" is history.
+>
 > Deployment **how**: [`apps/api/RUNBOOK.md`](apps/api/RUNBOOK.md). Deployment **why**: this document.
 >
 > Every external fact below was verified against primary sources during design; the
