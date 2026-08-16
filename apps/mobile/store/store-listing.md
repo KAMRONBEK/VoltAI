@@ -103,3 +103,26 @@ and map locale are currently `ru_RU`. Short descriptions to paste:
 
 Full descriptions in ru/uz: translate the English block above 1:1 (same claims — no additions);
 keep the "independent app, not affiliated, data may be delayed" paragraph in every language.
+
+## Release notes — 1.0.0 (initial release; Play "What's new" ≤ 500 chars each)
+
+**en**
+VoltAI UZ 1.0 — the first release.
+• One live map of EV chargers across Uzbekistan: Tokbor, Spectre Energy, K-Watt and Beon stations, with connector types, power and per-plug availability refreshed every few minutes.
+• Filters by connector, power, operator, city and "available now".
+• Trip planner: add your car once (real range, GB/T or CCS, charging speed) and get a route with charging stops that fit it — fastest, fewest-stops or most-buffer.
+• Saved trips work offline. No account, no ads, no tracking.
+
+**ru**
+VoltAI UZ 1.0 — первый выпуск.
+• Одна живая карта зарядок для электромобилей по всему Узбекистану: станции Tokbor, Spectre Energy, K-Watt и Beon с типами разъёмов, мощностью и доступностью каждого разъёма, обновляемой каждые несколько минут.
+• Фильтры по разъёму, мощности, оператору, городу и «свободно сейчас».
+• Планировщик поездок: добавьте автомобиль один раз (реальный запас хода, GB/T или CCS, скорость зарядки) — и получите маршрут с остановками для зарядки: самый быстрый, с наименьшим числом остановок или с запасом.
+• Сохранённые поездки доступны офлайн. Без аккаунта, рекламы и отслеживания.
+
+**uz**
+VoltAI UZ 1.0 — birinchi versiya.
+• Oʻzbekiston boʻylab elektromobil zaryadka stansiyalarining yagona jonli xaritasi: Tokbor, Spectre Energy, K-Watt va Beon — ulagich turlari, quvvati va har bir ulagichning bandligi bir necha daqiqada yangilanadi.
+• Ulagich, quvvat, operator, shahar va «hozir boʻsh» boʻyicha filtrlar.
+• Safar rejalashtiruvchi: mashinangizni bir marta kiriting (real masofa, GB/T yoki CCS, zaryadlash tezligi) — zaryadka toʻxtashlari bilan marshrut oling: eng tez, eng kam toʻxtash yoki eng katta zaxira.
+• Saqlangan safarlar oflayn ishlaydi. Akkauntsiz, reklamasiz, kuzatuvsiz.
