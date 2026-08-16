@@ -132,8 +132,11 @@ npm run api:build
 - **API**: runs on the always-on Android phone (Termux + runit), to be exposed as
   `https://api.voltai.uz` by a Cloudflare Tunnel dialing out from the device. **Not on Vercel** —
   see [`apps/api/RUNBOOK.md`](apps/api/RUNBOOK.md) (how) and [`ARCHITECTURE.md`](ARCHITECTURE.md)
-  (why). Ship a change with `bash apps/api/scripts/phone/deploy.sh` (build on the dev box, tar
-  over ssh, `npm ci` on the phone from the root lockfile, `sv restart`, smoke test).
+  (why). **Push-to-deploy:** every green push to `main` publishes a GitHub Release
+  `api-<sha>` (CI), and the phone's `voltai-updater` service pulls, verifies, applies (npm ci if
+  the lockfile changed → restart → smoke test) and rolls back on failure — typically live within
+  5–8 minutes. Manual/uncommitted deploys: `bash apps/api/scripts/phone/deploy.sh` (same apply
+  path over ssh).
 
 > **Status (verified on the phone over ssh, 2026-08-16):** the backend is **deployed and
 > supervised** on the ASUS Zenfone 10 (Android 15) — runit services `voltai-api`,
