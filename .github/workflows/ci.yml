@@ -106,14 +106,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SHORT: ${{ steps.bundle.outputs.short }}
           NAME: ${{ steps.bundle.outputs.name }}
+          FULL_SHA: ${{ github.sha }}
+          # Passed through the environment on purpose: a commit message interpolated straight into
+          # the shell script would be EXECUTED (backticks / $(...)), not just printed.
+          HEAD_MSG: ${{ github.event.head_commit.message }}
         run: |
           set -e
           TAG="api-$SHORT"
+          {
+            printf 'Built by CI from %s.\n\n' "$FULL_SHA"
+            printf '%s\n\n' "$HEAD_MSG"
+            printf '%s\n' "The phone's voltai-updater applies this automatically; manual: bash apps/api/scripts/termux/apply-update.sh <bundle>."
+          } > release-notes.md
           # Re-runs of the same commit replace the release instead of failing.
           gh release delete "$TAG" -y --cleanup-tag >/dev/null 2>&1 || true
           gh release create "$TAG" "$NAME.tar.gz" "$NAME.tar.gz.sha256" \
-            --title "API build $SHORT" --latest \
-            --notes "Built by CI from ${{ github.sha }} (${{ github.event.head_commit.message }}). The phone's voltai-updater applies this automatically; manual: bash apps/api/scripts/termux/apply-update.sh <bundle>."
+            --title "API build $SHORT" --latest --notes-file release-notes.md
           echo "published $TAG"
 
       - name: Prune old api-* releases (keep the newest 10)
