@@ -115,14 +115,14 @@ VoltAI UZ 1.0 — first release.
 
 **ru**
 VoltAI UZ 1.0 — первый выпуск.
-• Живая карта зарядок для электромобилей по всему Узбекистану (Tokbor, Spectre Energy, K-Watt, Beon): типы разъёмов, мощность и доступность каждого разъёма, обновление каждые несколько минут.
+• Живая карта зарядок для электромобилей по всему Узбекистану: типы разъёмов, мощность и доступность каждого разъёма, обновление каждые несколько минут.
 • Фильтры по разъёму, мощности, оператору, городу и «свободно сейчас».
-• Планировщик поездок: добавьте автомобиль один раз (реальный запас хода, GB/T или CCS, скорость зарядки) — и получите маршрут с остановками для зарядки.
+• Планировщик поездок: добавьте автомобиль один раз (запас хода, GB/T или CCS, скорость зарядки) — и получите маршрут с остановками для зарядки.
 • Сохранённые поездки работают офлайн. Без аккаунта, рекламы и слежки.
 
 **uz**
 VoltAI UZ 1.0 — birinchi versiya.
-• Oʻzbekiston boʻylab elektromobil zaryadka stansiyalarining jonli xaritasi (Tokbor, Spectre Energy, K-Watt, Beon): ulagich turlari, quvvat va har bir ulagichning bandligi, har necha daqiqada yangilanadi.
+• Oʻzbekiston boʻylab elektromobil zaryadka stansiyalarining jonli xaritasi: ulagich turlari, quvvat va har bir ulagichning bandligi, har necha daqiqada yangilanadi.
 • Ulagich, quvvat, operator, shahar va «hozir boʻsh» boʻyicha filtrlar.
-• Safar rejalashtiruvchi: mashinangizni bir marta kiriting (real masofa, GB/T yoki CCS, zaryadlash tezligi) — zaryadka toʻxtashlari bilan marshrut oling.
+• Safar rejalashtiruvchi: mashinangizni bir marta kiriting (masofa, GB/T yoki CCS, zaryadlash tezligi) — zaryadka toʻxtashlari bilan marshrut oling.
 • Saqlangan safarlar oflayn ishlaydi. Akkauntsiz, reklamasiz, kuzatuvsiz.
