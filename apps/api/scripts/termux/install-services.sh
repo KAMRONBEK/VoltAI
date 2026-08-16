@@ -5,6 +5,7 @@
 #   voltai-api        node dist/src/index.js            (API + in-process scrapers + SQLite)
 #   voltai-watchdog   scripts/termux/watchdog.sh loop   (liveness/self-heal + wake-lock)
 #   voltai-backup     scripts/termux/backup.sh at 03:00 (encrypted archive of DB snapshot + secrets)
+#   voltai-updater    scripts/termux/updater.sh every 5 min (pull-based CD from GitHub Releases)
 #   cloudflared       the tunnel; enabled only once ~/.cloudflared/token or config.yml exists
 #   sshd              remote administration (over `adb forward tcp:8022 tcp:8022` or LAN)
 #
@@ -15,8 +16,8 @@ set -euo pipefail
 [ -f "$API_DIR/dist/src/index.js" ] || die "no build at $API_DIR/dist — run bootstrap.sh / deploy first"
 have sv || die "termux-services is not installed (pkg install termux-services)"
 
-mkdir -p "$LOG_DIR"/{api,watchdog,backup,cloudflared} "$DATA_DIR" "$BACKUP_DIR"
-mkdir -p "$SVDIR"/{voltai-api,voltai-watchdog,voltai-backup,cloudflared}/log
+mkdir -p "$LOG_DIR"/{api,watchdog,backup,updater,cloudflared} "$DATA_DIR" "$BACKUP_DIR" "$HOME/voltai/state"
+mkdir -p "$SVDIR"/{voltai-api,voltai-watchdog,voltai-backup,voltai-updater,cloudflared}/log
 
 # Run files are written to a temp name and mv'd into place: a shell that is currently executing
 # the old file (voltai-backup sleeps in it for hours) keeps its inode instead of reading a
@@ -65,6 +66,19 @@ bash "$API_DIR/scripts/termux/backup.sh" || true
 sleep 60
 EOF
 
+# ---------------------------------------------------------------- voltai-updater
+install_run "$SVDIR/voltai-updater/run" <<EOF
+#!$PREFIX/bin/sh
+exec 2>&1
+export HOME="$HOME" PREFIX="$PREFIX"
+# First poll 2 min after (re)start, then every 5 min: fetch the latest CI release and apply it.
+sleep 120
+while :; do
+  bash "$API_DIR/scripts/termux/updater.sh" || true
+  sleep 300
+done
+EOF
+
 # ---------------------------------------------------------------- cloudflared
 # Two supported modes, checked in this order:
 #   1. ~/.cloudflared/token      remotely-managed tunnel (Zero Trust dashboard; paste the token)
@@ -86,9 +100,9 @@ fi
 EOF
 
 # ---------------------------------------------------------------- loggers (svlogd, rotated)
-for svc in voltai-api voltai-watchdog voltai-backup cloudflared; do
+for svc in voltai-api voltai-watchdog voltai-backup voltai-updater cloudflared; do
   case "$svc" in
-    voltai-api) d=api ;; voltai-watchdog) d=watchdog ;; voltai-backup) d=backup ;; *) d=$svc ;;
+    voltai-api) d=api ;; voltai-watchdog) d=watchdog ;; voltai-backup) d=backup ;; voltai-updater) d=updater ;; *) d=$svc ;;
   esac
   install_run "$SVDIR/$svc/log/run" <<EOF
 #!$PREFIX/bin/sh
@@ -119,6 +133,7 @@ done
 sv-enable voltai-api      >/dev/null 2>&1 || true
 sv-enable voltai-watchdog >/dev/null 2>&1 || true
 sv-enable voltai-backup   >/dev/null 2>&1 || true
+sv-enable voltai-updater  >/dev/null 2>&1 || true
 # A hand-started sshd (bootstrap / first login) holds port 8022 and would make the supervised one
 # crash-loop. Stop it first — an established ssh session survives (it is a forked child).
 if pgrep -x sshd >/dev/null 2>&1 && ! sv status sshd 2>/dev/null | grep -q '^run:'; then
@@ -138,7 +153,7 @@ fi
 sleep 2
 echo
 echo "== service state =="
-for svc in voltai-api voltai-watchdog voltai-backup cloudflared sshd; do sv_state "$svc"; done
+for svc in voltai-api voltai-watchdog voltai-backup voltai-updater cloudflared sshd; do sv_state "$svc"; done
 echo
-echo "Control:  sv up|down|restart <service>      Logs: $LOG_DIR/{api,watchdog,backup,cloudflared}/current"
+echo "Control:  sv up|down|restart <service>      Logs: $LOG_DIR/{api,watchdog,backup,updater,cloudflared}/current"
 echo "Boot:     bash $API_DIR/scripts/termux/install-boot.sh   (once) — then test with a reboot"

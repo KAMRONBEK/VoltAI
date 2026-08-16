@@ -1,5 +1,11 @@
 name: CI
 
+# Push-to-deploy for a backend nothing can reach in: the `check` job verifies every push/PR; on a
+# green push to `main` the `publish-api` job builds the API and publishes it as a GitHub Release
+# tagged `api-<shortsha>`. The phone's `voltai-updater` service polls the latest release every
+# 5 min, verifies the checksum, applies it (apps/api/scripts/termux/apply-update.sh: npm ci if the
+# lockfile changed → restart → smoke test) and rolls back on failure. See apps/api/RUNBOOK.md §3.
+
 on:
   push:
     branches: [main]
@@ -55,3 +61,65 @@ jobs:
             bash -n "$f"
             if grep -q $'\r' "$f"; then echo "CRLF line endings in $f" >&2; exit 1; fi
           done
+
+  publish-api:
+    name: publish API bundle (GitHub Release → phone auto-updates)
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Build API (tsc + dist/version.json stamp)
+        run: npm run build -w voltai-api
+
+      - name: Bundle (same layout deploy.sh ships)
+        id: bundle
+        run: |
+          set -e
+          SHORT="$(node -p "require('./apps/api/dist/version.json').commit")"
+          NAME="voltai-api-$SHORT"
+          tar -czf "$NAME.tar.gz" \
+            package.json package-lock.json \
+            apps/api/package.json apps/api/dist apps/api/scripts apps/api/docs apps/api/.env.example \
+            apps/api/apps.json apps/api/RUNBOOK.md
+          sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256"
+          ls -la "$NAME.tar.gz" "$NAME.tar.gz.sha256"
+          echo "short=$SHORT" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release api-<sha> (marked latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHORT: ${{ steps.bundle.outputs.short }}
+          NAME: ${{ steps.bundle.outputs.name }}
+        run: |
+          set -e
+          TAG="api-$SHORT"
+          # Re-runs of the same commit replace the release instead of failing.
+          gh release delete "$TAG" -y --cleanup-tag >/dev/null 2>&1 || true
+          gh release create "$TAG" "$NAME.tar.gz" "$NAME.tar.gz.sha256" \
+            --title "API build $SHORT" --latest \
+            --notes "Built by CI from ${{ github.sha }} (${{ github.event.head_commit.message }}). The phone's voltai-updater applies this automatically; manual: bash apps/api/scripts/termux/apply-update.sh <bundle>."
+          echo "published $TAG"
+
+      - name: Prune old api-* releases (keep the newest 10)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --limit 200 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("api-"))] | sort_by(.createdAt) | reverse | .[10:] | .[].tagName' \
+            | xargs -r -n1 -I{} gh release delete {} -y --cleanup-tag

@@ -63,46 +63,22 @@ SHORT="$(git -C "$ROOT" rev-parse --short HEAD)"
 DIRTY="$(git -C "$ROOT" status --porcelain -- apps/api package.json package-lock.json | head -c1)"
 log "commit $SHORT${DIRTY:+ (+uncommitted changes)}"
 
-# ---- 2. move the phone checkout to this commit when origin has it ---------------------------
-ON_ORIGIN=0
-if git -C "$ROOT" branch -r --contains "$COMMIT" 2>/dev/null | grep -q .; then ON_ORIGIN=1; fi
-if [ "$ON_ORIGIN" = 1 ]; then
-  log "phone: git fetch + checkout $SHORT"
-  "${SSH[@]}" "cd '$PHONE_REPO' && git fetch -q origin && git checkout -q -f '$COMMIT' 2>&1 | tail -1 || true"
-else
-  log "commit not on origin — overlaying files on the phone checkout (git status there will be dirty)"
-fi
-
-# ---- 3. ship files -------------------------------------------------------------------------
-log "shipping dist + scripts + lockfile"
-tar -C "$ROOT" -czf - \
+# ---- 2+3+4. ship the bundle and apply it with the SAME code path CI-driven updates use ----------
+# (apps/api/scripts/termux/apply-update.sh: snapshot → copy → npm ci if lock changed → git checkout
+#  → restart → smoke → rollback on failure). Restart is deferred until after --setup below.
+BUNDLE="$(mktemp -t voltai-bundle-XXXXXX).tar.gz"
+tar -C "$ROOT" -czf "$BUNDLE" \
   package.json package-lock.json \
   apps/api/package.json apps/api/dist apps/api/scripts apps/api/docs apps/api/.env.example \
-  apps/api/apps.json apps/api/RUNBOOK.md \
-  | "${SSH[@]}" "mkdir -p '$PHONE_REPO' && rm -rf '$PHONE_REPO/apps/api/dist' && tar -xzf - -C '$PHONE_REPO' && sed -i 's/\r\$//' '$PHONE_REPO'/apps/api/scripts/termux/*.sh '$PHONE_REPO'/apps/api/scripts/*.sh && chmod +x '$PHONE_REPO'/apps/api/scripts/termux/*.sh '$PHONE_REPO'/apps/api/scripts/*.sh"
-
-# ---- 4. dependencies (only when the lockfile changed) ---------------------------------------
-log "phone: npm ci -w voltai-api --omit=dev (skipped if lockfile unchanged)"
-"${SSH[@]}" bash -s <<'EOF'
-set -eo pipefail
-cd "$HOME/VoltAI"
-mkdir -p "$HOME/voltai/state"
-want="$(sha256sum package-lock.json | cut -c1-64)"
-have="$(cat "$HOME/voltai/state/lock.sha256" 2>/dev/null || true)"
-if [ "$want" != "$have" ] || [ ! -d node_modules/express ]; then
-  export PUPPETEER_SKIP_DOWNLOAD=1
-  # Failure must be loud AND must not record the lockfile as installed (or every later deploy
-  # would skip the install and the API would crash-loop on a missing module).
-  if ! npm ci -w voltai-api --omit=dev --ignore-scripts --no-audit --no-fund > "$HOME/voltai/state/npm-ci.log" 2>&1; then
-    tail -30 "$HOME/voltai/state/npm-ci.log"; echo "npm ci failed on the phone" >&2; exit 1
-  fi
-  tail -2 "$HOME/voltai/state/npm-ci.log"
-  echo "$want" > "$HOME/voltai/state/lock.sha256"
-  # A stale per-workspace node_modules from the old bootstrap would shadow the fresh hoisted tree.
-  rm -rf apps/api/node_modules apps/api/package-lock.json
+  apps/api/apps.json apps/api/RUNBOOK.md
+log "shipping bundle ($(du -h "$BUNDLE" | cut -f1))"
+"${SSH[@]}" "mkdir -p /data/data/com.termux/files/home/voltai/state/incoming && cat > /data/data/com.termux/files/home/voltai/state/incoming/manual-$SHORT.tar.gz" < "$BUNDLE"
+rm -f "$BUNDLE"
+# Fresh phone: the apply script itself comes from the bundle — unpack just the scripts first.
+"${SSH[@]}" "mkdir -p '$PHONE_REPO' && tar -xzf /data/data/com.termux/files/home/voltai/state/incoming/manual-$SHORT.tar.gz -C '$PHONE_REPO' apps/api/scripts && sed -i 's/\r\$//' '$PHONE_REPO'/apps/api/scripts/termux/*.sh '$PHONE_REPO'/apps/api/scripts/*.sh && chmod +x '$PHONE_REPO'/apps/api/scripts/termux/*.sh '$PHONE_REPO'/apps/api/scripts/*.sh"
+if [ -n "$DIRTY" ]; then
+  log "note: this is an UNCOMMITTED build — the phone's auto-updater pauses until a committed build is deployed"
 fi
-node -e 'require("/data/data/com.termux/files/home/VoltAI/node_modules/express/package.json"); console.log("deps ok")'
-EOF
 
 # ---- 5. data files -------------------------------------------------------------------------
 if [ "$DO_DATA" = 1 ]; then
@@ -118,17 +94,13 @@ if [ "$DO_DATA" = 1 ]; then
   done
 fi
 
-# ---- 6. supervise / restart ----------------------------------------------------------------
+# ---- 6. supervise (first run / --setup), then apply (restart + smoke, rollback on failure) ------
 if [ "$DO_SETUP" = 1 ] || ! "${SSH[@]}" "$SVENV sv status voltai-api >/dev/null 2>&1"; then
   log "phone: install-services.sh + install-boot.sh"
+  # The bundle's scripts must be in place before install-services runs → apply without restart first.
+  "${SSH[@]}" "bash '$PHONE_REPO/apps/api/scripts/termux/apply-update.sh' /data/data/com.termux/files/home/voltai/state/incoming/manual-$SHORT.tar.gz --no-restart" 2>/dev/null || true
   "${SSH[@]}" "bash '$PHONE_REPO/apps/api/scripts/termux/install-services.sh' && bash '$PHONE_REPO/apps/api/scripts/termux/install-boot.sh' >/dev/null"
 fi
-# Always restart so the freshly shipped dist/ is what runs (install-services alone leaves a
-# running API on the old code). -w 30: a shutdown mid-merge can take longer than sv's 7 s default.
-log "phone: sv restart voltai-api"
-"${SSH[@]}" "$SVENV sv -w 30 restart voltai-api"
-
-# ---- 7. smoke ------------------------------------------------------------------------------
-log "smoke test"
-"${SSH[@]}" "bash '$PHONE_REPO/apps/api/scripts/smoke.sh' http://127.0.0.1:\$(grep -E '^PORT=' '$PHONE_REPO/apps/api/.env' | tail -1 | cut -d= -f2 | tr -d '\r' || echo 8080) --wait 300"
+log "phone: apply-update.sh (restart + smoke; rolls back on failure)"
+"${SSH[@]}" "$SVENV bash '$PHONE_REPO/apps/api/scripts/termux/apply-update.sh' /data/data/com.termux/files/home/voltai/state/incoming/manual-$SHORT.tar.gz"
 log "done"

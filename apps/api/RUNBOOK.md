@@ -67,17 +67,29 @@ and enables `sshd`. It does **not** build anything: `dist/` is built on the dev 
 Then fill in `~/VoltAI/apps/api/.env`: **`MYTAXI_API_KEY`** (route planner; without it every plan is
 straight-line "estimated") and, once `rclone config` has a remote, **`BACKUP_REMOTE`**.
 
-## 3. Deploy / redeploy (from the dev box — repeat after every change)
+## 3. Deploy / redeploy
+
+**Automatic (push-to-deploy):** every push to `main` runs CI (`.github/workflows/ci.yml`); when the
+checks pass, CI builds the API and publishes it as a GitHub Release `api-<shortsha>` (bundle +
+sha256). On the phone the `voltai-updater` service polls the latest release every 5 min, verifies
+the checksum, and runs `apply-update.sh`: snapshot the current build → copy the bundle in → `npm ci
+-w voltai-api --omit=dev` if the lockfile changed → move the git checkout to that commit → `sv
+restart voltai-api` → `smoke.sh` → **roll back to the snapshot on any failure** (that release is then
+never retried). Only forward moves are applied (the release must descend from the installed commit),
+and a *dirty* manual deploy pauses auto-update until a committed build is deployed. Freeze the phone
+with `AUTO_UPDATE=false` in `.env` (+ `sv restart voltai-updater`). Log:
+`~/voltai/logs/updater/current`; last result: `~/voltai/state/last-update`. Push → phone typically
+within 5–8 minutes (CI ~1 min + poll interval).
+
+**Manual (from the dev box — uncommitted work, first install, or when in a hurry):**
 ```bash
 bash apps/api/scripts/phone/deploy.sh --data     # first time: also copies auth-tokens.json + tokbor-details.json
-bash apps/api/scripts/phone/deploy.sh            # every later deploy
+bash apps/api/scripts/phone/deploy.sh            # any later deploy (same apply-update.sh path as CI)
+bash apps/api/scripts/phone/deploy.sh --setup    # also (re)run install-services.sh + install-boot.sh
 ```
-What it does: `npm run build -w voltai-api` (tsc + `dist/version.json` commit stamp) → moves the phone
-checkout to the same commit if it is on origin → ships `dist/`, `scripts/`, `docs/`, the root
-`package-lock.json` over ssh (tar, no rsync) → on the phone `npm ci -w voltai-api --omit=dev
---ignore-scripts` **against the same lockfile** (only when the lock changed) → `sv restart voltai-api`
-(or, on first run / `--setup`, `install-services.sh` + `install-boot.sh`) → `scripts/smoke.sh`.
-`/api/health/detail` reports `build.commit`, so a stale phone is visible from anywhere.
+It builds locally (`dist/version.json` commit stamp), ships the identical bundle over ssh and calls
+`apply-update.sh` on the phone. `/api/health/detail` reports `build.commit`, so a stale phone is
+visible from anywhere.
 
 **Data files** (`~/voltai/data/`, NOT in git — the phone holds the only copies): `auth-tokens.json`
 (operator login-replay bearers; without it Tokbor + Beon — ~766 of ~1,226 stations — disappear) and
@@ -131,8 +143,8 @@ bash ~/VoltAI/apps/api/scripts/termux/install-boot.sh       # ~/.termux/boot/00-
   consecutive** liveness misses (a merge can block the event loop for seconds), logs readiness, and
   restarts `cloudflared` only if the tunnel is configured, has been up > 5 min, the uplink works and
   the public URL failed 3× (max once / 15 min).
-- `voltai-backup` — 03:00 nightly (§6). `cloudflared` — stays **down** until `~/.cloudflared/token`
-  or `config.yml` exists (`sv-enable cloudflared` after §4).
+- `voltai-backup` — 03:00 nightly (§6). `voltai-updater` — pull-based CD (§3). `cloudflared` —
+  stays **down** until `~/.cloudflared/token` or `config.yml` exists (`sv-enable cloudflared` after §4).
 - Control: `sv status|up|down|restart <svc>`. Logs: `~/voltai/logs/{api,watchdog,backup,cloudflared}/current`.
 - **Reboot test (mandatory before relying on it):** `adb reboot`; with no lock-screen PIN, within
   ~2 min `curl http://127.0.0.1:8080/api/health/ready` (over `adb forward`) must answer 200 without
@@ -169,7 +181,9 @@ bash ~/VoltAI/apps/api/scripts/termux/install-boot.sh       # ~/.termux/boot/00-
 ## 7. Everyday operations
 | Task | Command |
 |---|---|
-| Ship a code change | `bash apps/api/scripts/phone/deploy.sh` (dev box) |
+| Ship a code change | push to `main` (CI publishes → phone auto-updates within ~5–8 min); or `bash apps/api/scripts/phone/deploy.sh` for a manual/uncommitted deploy |
+| Freeze / unfreeze auto-updates | `AUTO_UPDATE=false` / `true` in `.env`, then `sv restart voltai-updater` |
+| Last auto-update result | `cat ~/voltai/state/last-update`; `tail ~/voltai/logs/updater/current` |
 | See what is running | `curl -s 127.0.0.1:8080/api/health/detail \| head -c 600` (phone) |
 | Full check | `bash apps/api/scripts/smoke.sh http://127.0.0.1:8080` |
 | Restart / stop | `sv restart voltai-api` / `sv down voltai-api` |

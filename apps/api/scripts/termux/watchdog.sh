@@ -66,7 +66,13 @@ if [ -s "$HOME/.cloudflared/token" ] || [ -s "$HOME/.cloudflared/config.yml" ]; 
       log "uplink down — not judging the tunnel"
       exit 0
     fi
-    if curl -fsS -m 15 "$PUBLIC_URL" >/dev/null 2>&1; then
+    # Only judge the tunnel once the public hostname is actually served by Cloudflare — before the
+    # DNS cut-over it still answers from the old origin (Vercel 500), which is not our tunnel's fault.
+    hdrs="$(curl -sSI -m 15 "$PUBLIC_URL" 2>/dev/null || true)"
+    if ! printf '%s' "$hdrs" | grep -qi '^server: cloudflare'; then
+      log "edge $PUBLIC_URL is not served by Cloudflare yet (DNS pending) — not judging the tunnel"
+      reset "$EDGE_FAILS"
+    elif printf '%s' "$hdrs" | grep -qE '^HTTP/[0-9.]+ (200|304)'; then
       reset "$EDGE_FAILS"
     else
       bump "$EDGE_FAILS"
