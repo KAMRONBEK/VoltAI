@@ -11,7 +11,7 @@ technical core; the phasing/blockers/open-questions material follows.
 | Charge curve (log-mean PWL) | IMPLEMENTED, reproduces the band table below to 4 dp | `src/services/planner/chargeCurve.ts` |
 | Corridor projection + gaps | IMPLEMENTED | `src/services/planner/corridor.ts` |
 | Label-setting search | IMPLEMENTED | `src/services/planner/planner.ts` |
-| Regression harness (22 checks) | IMPLEMENTED, runs in `npm run lint` | `scripts/plan-check.ts` |
+| Regression harness (30 checks) | IMPLEMENTED, runs in `npm run lint` | `scripts/plan-check.ts` |
 | Per-gun power (cabinet smear) | IMPLEMENTED — tokbor + beon; k-watt already had real per-gun data | `src/services/perGunPower.ts` |
 | MyTaxi routing client + cache | IMPLEMENTED — 90-day cache, geometry validation on fetch AND on read, token bucket, breaker (5xx/network/timeout only), 10-min per-key negative cache for 4xx/malformed, single-flight, `pruneRouteCache()` each scrape cycle | `src/services/routing/mytaxi.ts` |
 | `GET /api/plan` endpoint | IMPLEMENTED, plus `/api/plan/health` — per-IP token bucket (429), knob validation (400), service-area bbox (400), inflight shed (503), geometry-aware ETag, short cache policy on degraded answers | `src/routes/plan.ts` |
@@ -161,13 +161,15 @@ Arc model — **complete forward DAG** (`progress_j > progress_i`), plus O→*, 
 
 ```
 RESERVE(w)     = max(0.10·Rp, 25 km, min(d_alt(w), 0.25·Rp))   // d_alt = km to nearest other candidate
-RESERVE_DEST   = max(0.15·Rp, 25 km)
+RESERVE_DEST   = max(reservePct·Rp, 25 km)                      // reservePct: request knob, default 0.20
 GAP_SURCHARGE  = 0.05·Rp
 T_PLUG         = 5 min      WAIT_MIN = 12 min      σ_max = 0.90
 gapKm(v,w)     = longest sub-interval of [progress_v, progress_w] with no surviving candidate
 ```
 
 `RESERVE` is isolation-aware: arriving at a charger with 25 km of buffer is fine when a backup sits 8 km away and thin when the next is 132 km ahead.
+
+`RESERVE_DEST` is the **driver's** number (2026-08-16): the `reservePct` query knob, 10–40 whole percent, default **20** (it was a fixed 15% before). It is a share of *planning* range, so a winter trip keeps proportionally the same buffer as a summer one, and the 25 km floor still applies. It is only ever the reserve on the arc that ends at the destination — the intermediate `RESERVE(w)` does not move with it — and it is never relaxed by the ladder: `feasible:false` means no plan arrives at or above it. The API echoes what it applied as `reserve.{destinationPct,destinationKm}` (§5).
 
 ```
 Label ℓ = { v, t, soc, stops, parent, chargedTo }        PQ keyed on f = t + h
@@ -262,7 +264,7 @@ Gap constraint (exact): departing km 321 requires `(132 + 49.2 + 16.4)/328 = ` *
 | Origin | 0 | — | 80.0% (262.4) | — | — | |
 | **Stop 1** G'allaorol Petrol 120 kW | 229.5 | **10.0%** (32.9) | **37.9%** (124.3) | 13.4 min | 5 | entirely below the knee, so full 6.833 km/min |
 | **Stop 2** last site before the gap (gatekeeper) | 321.0 | **10.0%** (32.8) | **60.2%** (197.6) | 25.5 min | 5 | charges into the taper *because feasibility forces it* |
-| Qarshi | 453.0 | **20.0%** (65.6) | — | — | — | 15% reserve + 5% unspent gap insurance |
+| Qarshi | 453.0 | **20.0%** (65.6) | — | — | — | 15% reserve + 5% unspent gap insurance (worked at the original fixed 15%; the shipped default `reservePct` is 20, which moves this row to ≥ 20% + insurance) |
 
 Drive `= 60·453/80 + 20 = 359.8 min`. Charging `= 38.8 min`, plugs `= 10 min`. **Total = 408.6 min = 6 h 49 m.** Energy added = 256.2 planning-km ≡ 56.2 kWh into the pack.
 
@@ -337,7 +339,7 @@ A status is **usable** only if `ageSec ≤ 900` **and** it is per-**site**. Per-
 
 ```
 RESERVE(w)    = max(0.10·Rp, 25 km, min(d_alt(w), 0.25·Rp))
-RESERVE_DEST  = max(0.15·Rp, 25 km)
+RESERVE_DEST  = max(reservePct·Rp, 25 km)     // reservePct = query knob 10–40 %, default 20 %
 GAP_SURCHARGE = 0.05·Rp   on any arc containing a charger-free stretch > 80 km
 σ_max         = 0.90 hard
 ```
@@ -461,7 +463,8 @@ Also **export** `maxPower()` / `deriveCategory()` from `src/db/mappers.ts`; note
 > `PlanOption` types in [`apps/mobile/lib/plan/planClient.ts`](../../mobile/lib/plan/planClient.ts),
 > which mirror `src/routes/plan.ts` field for field. The JSON example further down was the design
 > sketch and differs from what shipped (`optimality`, `legs`, `effectiveKw`, `statusFresh`,
-> `fromSiteId`, `socNeededPct` … were never emitted; `arrive`, `opts`, `fast` are not read).
+> `fromSiteId`, `socNeededPct` … were never emitted; `opts`, `fast` are not read; the sketch's
+> `arrive` shipped as `reservePct`).
 > What the endpoint actually does today:
 >
 > - **Validation, before any work (400 with `{message, field, reason}`):** `from`/`to` must be
@@ -469,8 +472,18 @@ Also **export** `maxPower()` / `deriveCategory()` from `src/db/mappers.ts`; note
 >   generous Central-Asia box, lat 35–48 × lng 52–76 (`outside-service-area`); `range` 50–1200
 >   (`invalid-range`); `soc` 1–100 (`invalid-soc`); `plug` required and routable
 >   (`plug-required` / `unsupported-plug`); optional knobs are refused, not clamped, when present
->   and out of range: `dcKw` 10–400, `consWhKm` 80–500, `minKw` 0–400, `maxDetourKm` 0–30
->   (`invalid-dcKw` etc.). Absent knobs default to 90 / 180 / 50 / 5.
+>   and out of range: `dcKw` 10–1000, `consWhKm` 80–500, `minKw` 0–400, `maxDetourKm` 0–30,
+>   `reservePct` 10–40 **whole** percent (`invalid-dcKw`, …, `invalid-reservePct`; a fractional
+>   `reservePct` is also `invalid-reservePct`). Absent knobs default to 90 / 180 / 50 / 5 / 20.
+> - **`reservePct` — the destination arrival reserve.** The planner keeps
+>   `max(reservePct % × planningRangeKm, 25 km)` at the destination: every option's
+>   `arriveSocPct` is ≥ that (to rounding), and `feasible:false` means no plan clears it — the
+>   ladder never trades it away. It only moves the *final* leg's reserve; intermediate-stop
+>   reserves are unchanged. The response echoes what was applied as top-level
+>   `reserve: { destinationPct: number, destinationKm: number }` (`destinationPct` can be
+>   **above** the requested value for a short-range car, when the 25 km floor binds) and repeats
+>   the request value as `vehicle.assumed.reservePct`. Part of the ETag tag, so 15/20/25 are
+>   three cache entries.
 > - **Per-IP token bucket** keyed on `req.ip` (= `CF-Connecting-IP` behind cloudflared, because
 >   `app.ts` sets `trust proxy` to loopback): `PLAN_RATE_PER_MIN` (default 20) requests per minute
 >   per IP, bucket size = the same number. Over it → **429** with `Retry-After` and
@@ -507,7 +520,7 @@ Mount in `src/app.ts`: `app.use("/api/plan", planRouter)` after the `/ingest` mo
 ```
 GET /api/plan?from=41.2995,69.2401&to=38.8606,65.7890&range=400&soc=80&plug=GBT_DC
              &dcKw=100&consWhKm=180&curve=standard&style=normal&temp=mild
-             &arrive=15&minKw=50&maxDetourKm=5&opts=3&live=1[&fast=1]
+             &reservePct=20&minKw=50&maxDetourKm=5&opts=3&live=1[&fast=1]
 ```
 400 on any missing/unparseable required param (`from,to,range,soc,plug`) **before** any work. `plug` has no default; omitting it is a 400 with `reason:'plug-required'`.
 
@@ -521,7 +534,9 @@ GET /api/plan?from=41.2995,69.2401&to=38.8606,65.7890&range=400&soc=80&plug=GBT_
                   "notes": ["candidate thinning applied (2 per 25 km)"] },
   "relaxations": [],
   "vehicle": { "rangeKm": 400, "planningRangeKm": 328,
-               "assumed": { "consWhKm": 180, "packKwh": 72, "dcPeakKw": 100, "curve": "standard" } },
+               "assumed": { "consWhKm": 180, "packKwh": 72, "dcPeakKw": 100, "curve": "standard",
+                            "style": "normal", "temp": "mild", "reservePct": 20 } },
+  "reserve": { "destinationPct": 20, "destinationKm": 65.6 },   // shipped: what the plan was held to
   "options": [{
     "id": "fastest", "label": "Fastest",
     "totalMin": 408.6, "driveMin": 359.8, "chargeMin": 38.8, "plugMin": 10,
@@ -569,7 +584,7 @@ ETag tag, quantized (the cache-hit strategy on a public, unauthenticated endpoin
 ```
 pl-${lastMergeAt}-${olat.toFixed(3)},${olng.toFixed(3)}-${dlat.toFixed(3)},${dlng.toFixed(3)}
    -${round(range/10)*10}-${round(soc/5)*5}-${plug}-${dcKw}-${curve}-${style}-${temp}
-   -${arrive}-${minKw}-${live}
+   -${minKw}-${maxDetourKm}-${reservePct}-${live}
 ```
 Plus `lastModified: lastMergeAt` (routed answers only) and a trailing `-routed` / `-estimated` geometry element (see the box at the top of §5). Shipped as: `PLAN_MAX_INFLIGHT = 2` → 503 + `Retry-After: 2`; per-IP bucket `PLAN_RATE_PER_MIN` = 20/min on `req.ip` (`trust proxy` is set, so this is `CF-Connecting-IP`) → 429. ~~per-IP bucket 30/min, 300/h~~ ~~hard compute budget 250 ms → return the greedy plan with `optimality.status = "heuristic"`~~ — **not implemented; there is no compute budget and no `optimality` object.**
 
@@ -625,7 +640,7 @@ Register `<Stack.Screen name="garage" | "plan" options={{headerShown:false}} />`
 
 **Entry points.** (1) A third 46×46 FAB in `styles.fabColumn` (`app/(tabs)/index.tsx:357`) above `<FilterFab/>`, identical chrome (`c.chrome` / `c.chromeBorder` / `c.chromeShadow`, MaterialIcons `alt-route` size 20 in `c.chromeIcon`), `router.push('/plan')`; the column already has `gap:10`. (2) Settings: replace the inline "Your EV" form at `app/(tabs)/explore.tsx:147-204` with a "Your cars" Section pushing to `/garage`; delete the `make`/`model`/`rangeKmText` state and the `loadVehicleProfile` effect. Keep `paddingBottom: insets.bottom + 96`.
 
-**Input screen** reuses the Section/card/input/button conventions from `explore.tsx:31-42, 256-308`: car picker (with derived assumptions echoed back), starting-charge slider in 5% steps, origin ("My location" default), destination from the 14 corridor cities + `GET /api/stations/search?q` + map-tap (MapKit `suggest`/`geocode` are full-flavor only), three-way driving-style control, winter chip, "arrive with at least ___%" slider (default 15, range 5–30). **Never expose a raw derate percentage.**
+**Input screen** reuses the Section/card/input/button conventions from `explore.tsx:31-42, 256-308`: car picker (with derived assumptions echoed back), starting-charge slider in 5% steps, origin ("My location" default), destination from the 14 corridor cities + `GET /api/stations/search?q` + map-tap (MapKit `suggest`/`geocode` are full-flavor only), three-way driving-style control, winter chip, "arrive with at least ___%" — shipped as a **Settings › Trip planning** segmented control (15 / 20 / 25 %, default 20, persisted with the theme preference in `lib/settings/appSettings.ts`) rather than a per-trip slider, sent as `reservePct` and echoed on the trip tab's "Planning with …" caption. **Never expose a raw derate percentage.**
 
 **Results screen**: own `<YandexMapView>` instance (far cheaper than the tab map's ~1000 clustered markers, and it leaves untouched the load-bearing invariant from commit `818e365` that the tab map's `markers` memo depends only on `stationGroups`). `@gorhom/bottom-sheet` over it (`station-bottom-sheet.tsx:150-160` conventions, `paddingBottom: insets.bottom + 88`), segmented switch across ≤3 options. Stop cards show operator branding (`lib/operators.ts`), category color (`lib/categories.ts`), **km of range per hour rather than kW** (*"adds ~410 km/h at arrival"* — the same 120 kW gun gives 720 km/h at 20% and 259 km/h at 80%, which is the one-line explanation for departing at 60% instead of 90%), the SoC-vs-time sparkline, the effective power (*"100 kW — your car's limit"*), and honesty chips: `unverified power`, `shared cabinet — may be slower if busy`, `hours unknown` (`working_hours` is 100% NULL across all four sources — do not build a parser), `status 4 min old`. A tappable *why this plan* row: *"We leave each charger the moment it slows down below what the next one gives you."* Amber gap banner on any leg crossing a known hole. Also warn which operator app each stop needs **before departure** — an account you cannot create at km 321 is functionally a dead charger.
 

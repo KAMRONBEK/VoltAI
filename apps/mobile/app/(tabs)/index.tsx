@@ -3,6 +3,7 @@ import { ThemedView } from '@/components/themed-view';
 import { TAB_BAR_CLEARANCE } from '@/components/floating-tab-bar';
 import { OfflineBanner } from '@/components/offline-banner';
 import { ChromePill } from '@/components/ui/chrome-pill';
+import { InfoSheet } from '@/components/ui/dialog-sheet';
 import { FilterFab } from '@/components/stations/filter-fab';
 import { LiveStatusPill } from '@/components/stations/live-status-pill';
 import { MapLegend } from '@/components/stations/map-legend';
@@ -19,7 +20,7 @@ import * as Location from 'expo-location';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ActivityIndicator, Alert, AppState, Linking, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, AppState, Linking, Pressable, StyleSheet, View } from 'react-native';
 import { Clusterer, Marker, YandexMapView, type YandexMapViewRef } from 'expo-yandex-mapkit';
 
 const UZBEKISTAN_CAMERA = {
@@ -45,6 +46,8 @@ export default function StationsMapScreen() {
   const [stations, setStations] = useState<Station[]>([]);
   const [filters, setFilters] = useState<StationsFilters>(DEFAULT_STATIONS_FILTERS);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  /** What the My-location button has to explain, if anything (permission, GPS off, a failed fix). */
+  const [locationNotice, setLocationNotice] = useState<LocationNotice | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [isLoadingStations, setIsLoadingStations] = useState(true);
   const [stationsApiError, setStationsApiError] = useState<string | undefined>(undefined);
@@ -508,8 +511,8 @@ export default function StationsMapScreen() {
       <View style={[styles.fabColumn, { bottom: controlsBottom }]}>
         <Pressable
           onPress={() =>
-            requestAndCenterUserLocation(mapRef, { interactive: true }).catch(() =>
-              Alert.alert('Could not get your location', 'Try again in a moment.')
+            requestAndCenterUserLocation(mapRef, { interactive: true, explain: setLocationNotice }).catch(() =>
+              setLocationNotice({ title: 'Could not get your location', body: 'Try again in a moment.' })
             )
           }
           style={[styles.fabButton, { backgroundColor: c.chrome, borderColor: c.chromeBorder, boxShadow: c.chromeShadow }]}
@@ -541,32 +544,55 @@ export default function StationsMapScreen() {
         onReset={() => setFilters(DEFAULT_STATIONS_FILTERS)}
         onClose={() => setIsFilterOpen(false)}
       />
+
+      <InfoSheet
+        open={locationNotice !== null}
+        onDismiss={() => setLocationNotice(null)}
+        title={locationNotice?.title ?? ''}
+        body={locationNotice?.body}
+        icon="location-off"
+        primaryLabel={locationNotice?.action?.label ?? 'OK'}
+        onPrimary={locationNotice?.action?.onPress}
+        secondaryLabel={locationNotice?.action ? 'Not now' : undefined}
+      />
     </ThemedView>
   );
 }
 
+/** One thing the My-location button could not do, and (optionally) the way to fix it. */
+type LocationNotice = {
+  title: string;
+  body: string;
+  /** A real fix, offered as the primary button — "Open Settings". Without one the button is "OK". */
+  action?: { label: string; onPress: () => void };
+};
+
 /**
- * Centre the map on the user. `interactive` is the FAB: it may explain itself with an Alert (send
- * the user to Settings after a permanent denial, tell them GPS is off). The launch-time call is
- * silent — no dialogs before the map has even drawn — and never throws into the caller.
+ * Centre the map on the user. `interactive` is the FAB: it may explain itself through `explain`
+ * (send the user to Settings after a permanent denial, tell them GPS is off) — the screen shows
+ * that as an info sheet. The launch-time call is silent — no dialogs before the map has even
+ * drawn — and never throws into the caller.
  */
 async function requestAndCenterUserLocation(
   mapRef: React.RefObject<YandexMapViewRef | null>,
-  { interactive }: { interactive: boolean }
+  { interactive, explain }: { interactive: boolean; explain?: (notice: LocationNotice) => void }
 ) {
   const permission = await Location.requestForegroundPermissionsAsync();
   if (permission.status !== Location.PermissionStatus.GRANTED) {
     if (interactive && !permission.canAskAgain) {
-      Alert.alert('Location is off for VoltAI', 'Allow location in Settings to centre the map on you.', [
-        { text: 'Not now', style: 'cancel' },
-        { text: 'Open Settings', onPress: () => Linking.openSettings().catch(() => {}) },
-      ]);
+      explain?.({
+        title: 'Location is off for VoltAI',
+        body: 'Allow location in Settings to centre the map on you.',
+        action: { label: 'Open Settings', onPress: () => Linking.openSettings().catch(() => {}) },
+      });
     }
     return;
   }
 
   if (!(await Location.hasServicesEnabledAsync())) {
-    if (interactive) Alert.alert('Location is turned off', 'Turn on location (GPS) to centre the map on you.');
+    if (interactive) {
+      explain?.({ title: 'Location is turned off', body: 'Turn on location (GPS) to centre the map on you.' });
+    }
     return;
   }
 

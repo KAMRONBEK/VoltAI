@@ -146,10 +146,42 @@ async function main(): Promise<void> {
       highCharges.length === 0,
       `${highCharges.length} early stop(s) above 80%`
     );
+    // The default destination reserve is 20% of planning range (65.6 km at Rp=328): a plan that
+    // arrives under it was never feasible, whatever else it got right.
     check(
-      "arrives with reserve intact (>=15%)",
-      p.arriveSoc >= 0.149,
+      "arrives with reserve intact (>=20%, the default reservePct)",
+      p.arriveSoc >= 0.199,
       `arrive ${(p.arriveSoc * 100).toFixed(1)}%`
+    );
+  }
+  check(
+    "default destination reserve is max(20% of Rp, 25 km)",
+    Math.abs(fastest.diagnostics.reserveDestKm - Math.max(0.2 * fastest.diagnostics.planningRangeKm, 25)) < 1e-6,
+    `${fastest.diagnostics.reserveDestKm.toFixed(1)} km of Rp=${fastest.diagnostics.planningRangeKm.toFixed(1)}`
+  );
+
+  // 1a. The arrival reserve is a user setting. Whatever it is set to, every option must arrive
+  //     at or above it — that is what `feasible` promises — and the km figure the API reports
+  //     must be the percentage applied to PLANNING range with the 25 km floor.
+  for (const reservePct of [15, 30]) {
+    const res = planRoute({ ...base, reservePct });
+    summarize(`same trip, reservePct=${reservePct}`, res);
+    const rp = res.diagnostics.planningRangeKm;
+    check(
+      `reservePct=${reservePct}: feasible`,
+      res.feasible && res.plans.length > 0,
+      res.feasible ? `${res.plans.length} plan(s)` : "NO ROUTE"
+    );
+    check(
+      `reservePct=${reservePct}: reserve is max(${reservePct}% of Rp, 25 km)`,
+      Math.abs(res.diagnostics.reserveDestKm - Math.max((reservePct / 100) * rp, 25)) < 1e-6,
+      `${res.diagnostics.reserveDestKm.toFixed(1)} km`
+    );
+    const under = res.plans.filter((p) => p.arriveSoc < reservePct / 100 - 1e-3);
+    check(
+      `reservePct=${reservePct}: every option arrives with >= ${reservePct}%`,
+      under.length === 0,
+      res.plans.map((p) => `${p.label} ${(p.arriveSoc * 100).toFixed(1)}%`).join(", ")
     );
   }
 

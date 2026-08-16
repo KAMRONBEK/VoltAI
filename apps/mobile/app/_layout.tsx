@@ -3,6 +3,7 @@ import {
   DefaultTheme,
   ThemeProvider as NavThemeProvider,
 } from 'expo-router/react-navigation';
+import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -74,21 +75,26 @@ function ThemedRoot() {
   return (
     <NavThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        {/* Maintenance banner / one-off notice / update floor from the backend. Fail-open. */}
-        <ClientConfigGate>
-          {/* Trip input is the Route tab; everything it pushes to — the garage, the map picker,
-              the results and the saved trips — is a root Stack route, so those screens get a real
-              back stack and never inherit the floating pill tab bar's inset. */}
-          <Stack>
-            {/* Only the tab shell is declared here. `name="garage"` and `name="plan"` used to be too,
-                but they match no route — without a `garage/_layout` / `plan/_layout` the real names
-                are `garage/index`, `garage/[id]`, `plan/pick`, `plan/results`, `plan/history` — so
-                expo-router warned at every launch while the entries did nothing. Every pushed screen
-                already sets its own title through its own `<Stack.Screen options>`, which is the one
-                place that stays in step with what the screen actually is. */}
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          </Stack>
-        </ClientConfigGate>
+        {/* Every modal in the app is a Gorhom `BottomSheetModal` (see components/ui/app-sheet).
+            The provider hosts them above the whole navigator, so a dialog opened from a pushed
+            screen or from the config gate below draws over headers, tab bar and all. */}
+        <BottomSheetModalProvider>
+          {/* Maintenance banner / one-off notice / update floor from the backend. Fail-open. */}
+          <ClientConfigGate>
+            {/* Trip input is the Route tab; everything it pushes to — the garage, the map picker,
+                the results and the saved trips — is a root Stack route, so those screens get a real
+                back stack and never inherit the floating pill tab bar's inset. */}
+            <Stack>
+              {/* Only the tab shell is declared here. `name="garage"` and `name="plan"` used to be too,
+                  but they match no route — without a `garage/_layout` / `plan/_layout` the real names
+                  are `garage/index`, `garage/[id]`, `plan/pick`, `plan/results`, `plan/history` — so
+                  expo-router warned at every launch while the entries did nothing. Every pushed screen
+                  already sets its own title through its own `<Stack.Screen options>`, which is the one
+                  place that stays in step with what the screen actually is. */}
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            </Stack>
+          </ClientConfigGate>
+        </BottomSheetModalProvider>
         <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
       </GestureHandlerRootView>
     </NavThemeProvider>

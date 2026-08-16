@@ -37,6 +37,10 @@ export const BRIDGE_TRIGGER_KM = 60;
 export const PARETO_CAP = 128;
 /** Destination labels to settle for k-best. */
 export const K_BEST_SETTLE = 8;
+/** Destination arrival reserve as a percent of planning range when the request names none. */
+export const DEFAULT_RESERVE_PCT = 20;
+/** The reserve never drops below this many km, whatever the percentage works out to. */
+export const RESERVE_FLOOR_KM = 25;
 
 export type PlugStandard = "GBT_DC" | "CCS2" | "CCS1" | "NACS" | "CHADEMO";
 
@@ -77,6 +81,12 @@ export interface PlanRequest {
   tempDerate?: number;
   minKw?: number;
   maxDetourKm?: number;
+  /**
+   * Destination arrival reserve, as a percent of PLANNING range (default 20). The reserve the
+   * planner keeps at the destination is max(reservePct% · Rp, 25 km); a plan whose final leg
+   * would end below it is not feasible. Intermediate-stop reserves are unaffected.
+   */
+  reservePct?: number;
 }
 
 export interface PlanStop {
@@ -130,6 +140,8 @@ export interface PlanResult {
     labelsGenerated: number;
     paretoCapHit: boolean;
     planningRangeKm: number;
+    /** The destination reserve actually applied, km of planning range. */
+    reserveDestKm: number;
   };
 }
 
@@ -244,12 +256,15 @@ export function planRoute(req: PlanRequest): PlanResult {
     curvePreset = "standard",
     styleDerate = 0.82,
     tempDerate = 1.0,
+    reservePct = DEFAULT_RESERVE_PCT,
   } = req;
 
   const derate = styleDerate * tempDerate;
   const rpKm = rangeKm * derate;
   const ceilingKm = SIGMA_MAX * rpKm;
-  const reserveDest = Math.max(0.15 * rpKm, 25);
+  // The reserve is a share of what the car can actually do (planning range), not of the
+  // nameplate figure, so a winter trip keeps proportionally the same buffer as a summer one.
+  const reserveDest = Math.max((reservePct / 100) * rpKm, RESERVE_FLOOR_KM);
   const gapSurcharge = 0.05 * rpKm;
   const k = CURVE_PRESETS[curvePreset];
 
@@ -318,6 +333,7 @@ export function planRoute(req: PlanRequest): PlanResult {
       labelsGenerated: 0,
       paretoCapHit: false,
       planningRangeKm: rpKm,
+      reserveDestKm: reserveDest,
     },
   };
 }
@@ -647,6 +663,7 @@ function solve(a: SolveArgs): {
     labelsGenerated,
     paretoCapHit,
     planningRangeKm: rpKm,
+    reserveDestKm: reserveDest,
   };
 
   if (!settled.length) {
@@ -715,7 +732,7 @@ function findBlockingGap(
   for (let i = 1; i < marks.length; i++) {
     const gap = marks[i] - marks[i - 1];
     const isFinal = i === marks.length - 1;
-    const reserve = isFinal ? reserveDest : Math.max(0.1 * rpKm, 25);
+    const reserve = isFinal ? reserveDest : Math.max(0.1 * rpKm, RESERVE_FLOOR_KM);
     const surcharge = gap > GAP_TRIGGER_KM ? 0.05 * rpKm : 0;
     const cost = gap + reserve + surcharge;
     const budget = i === 1 ? startKm : ceilingKm;

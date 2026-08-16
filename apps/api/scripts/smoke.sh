@@ -70,9 +70,10 @@ fi
 code="$(get "$BASE/api/client-config")"
 [ "$code" = 200 ] && grep -q '"minAppVersion"' "$TMP/body" && ok "/api/client-config" "$(tr -d '\n' < "$TMP/body" | head -c 100)" || bad "/api/client-config" "HTTP $code"
 
-# Tashkent → Samarkand, GB/T DC, 400 km range, 80% SoC
-code="$(get "$BASE/api/plan?from=41.311,69.279&to=39.654,66.975&range=400&soc=80&plug=GBT_DC")"
-if [ "$code" = 200 ]; then ok "/api/plan Tashkent→Samarkand" "geometry=$(sed -n 's/.*"geometry":"\([a-z]*\)".*/\1/p' "$TMP/body" | head -1) feasible=$(sed -n 's/.*"feasible":\(true\|false\).*/\1/p' "$TMP/body" | head -1)"; else bad "/api/plan" "HTTP $code $(head -c 200 "$TMP/body")"; fi
+# Tashkent → Samarkand, GB/T DC, 400 km range, 80% SoC, arrive with ≥ 20% (the knob the app sends;
+# `reserve=` in the OK line is empty on a backend that predates it, which is worth seeing)
+code="$(get "$BASE/api/plan?from=41.311,69.279&to=39.654,66.975&range=400&soc=80&plug=GBT_DC&reservePct=20")"
+if [ "$code" = 200 ]; then ok "/api/plan Tashkent→Samarkand" "geometry=$(sed -n 's/.*"geometry":"\([a-z]*\)".*/\1/p' "$TMP/body" | head -1) feasible=$(sed -n 's/.*"feasible":\(true\|false\).*/\1/p' "$TMP/body" | head -1) reserve=$(sed -n 's/.*"destinationPct":\([0-9.]*\).*/\1%/p' "$TMP/body" | head -1)"; else bad "/api/plan" "HTTP $code $(head -c 200 "$TMP/body")"; fi
 
 code="$(get -X POST -H 'content-type: application/json' --data '{}' "$BASE/ingest")"
 case "$code" in 401|404) ok "/ingest without token → $code" "" ;; *) bad "/ingest without token" "HTTP $code (want 401/404)" ;; esac

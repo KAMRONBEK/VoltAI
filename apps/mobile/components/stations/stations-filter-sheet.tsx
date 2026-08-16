@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { TAB_BAR_CLEARANCE } from '@/components/floating-tab-bar';
 import { ThemedText } from '@/components/themed-text';
+import { SHEET_PADDING_H, useSheetChrome } from '@/components/ui/app-sheet';
 import { CATEGORIES } from '@/lib/categories';
 import { useThemeColors } from '@/lib/theme/theme-context';
 import type { ChargerCategory } from '@/types/stations';
@@ -49,6 +50,7 @@ export function StationsFilterSheet({
 }: Props) {
   const c = useThemeColors();
   const insets = useSafeAreaInsets();
+  const chrome = useSheetChrome();
   const sheetRef = useRef<BottomSheet | null>(null);
   const snapPoints = useMemo(() => [260, '75%'], []);
 
@@ -69,8 +71,7 @@ export function StationsFilterSheet({
       keyboardBehavior="interactive"
       android_keyboardInputMode="adjustResize"
       onClose={onClose}
-      backgroundStyle={[styles.sheetBackground, { backgroundColor: c.background }]}
-      handleIndicatorStyle={{ backgroundColor: c.handle }}>
+      {...chrome}>
       <BottomSheetScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + TAB_BAR_CLEARANCE }]}
         keyboardShouldPersistTaps="handled">
@@ -226,12 +227,8 @@ function PillsSection({
 }
 
 const styles = StyleSheet.create({
-  sheetBackground: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-  },
   content: {
-    paddingHorizontal: 16,
+    paddingHorizontal: SHEET_PADDING_H,
     paddingTop: 8,
     paddingBottom: 24,
     gap: 14,

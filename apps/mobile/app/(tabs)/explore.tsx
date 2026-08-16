@@ -23,7 +23,12 @@ import { ThemedView } from '@/components/themed-view';
 import { Section } from '@/components/ui/section';
 import { SegmentedControl } from '@/components/ui/segmented-control';
 import { useIsOffline } from '@/hooks/use-is-offline';
-import { type ThemePreference } from '@/lib/settings/appSettings';
+import {
+  ARRIVAL_RESERVE_OPTIONS,
+  useArrivalReservePct,
+  type ArrivalReservePct,
+  type ThemePreference,
+} from '@/lib/settings/appSettings';
 import { useTheme, useThemeColors } from '@/lib/theme/theme-context';
 import { carsAtom, selectedCarAtom } from '@/lib/vehicles/garage-atoms';
 
@@ -32,6 +37,12 @@ const APPEARANCE_OPTIONS: { value: ThemePreference; label: string }[] = [
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
 ];
+
+// SegmentedControl keys on strings; the setting is a number, so map both ways at the edge.
+const ARRIVAL_RESERVE_SEGMENTS = ARRIVAL_RESERVE_OPTIONS.map((pct) => ({
+  value: String(pct),
+  label: `${pct} %`,
+}));
 
 const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 const PRIVACY_POLICY_URL = 'https://voltai.uz/uz/privacy';
@@ -45,6 +56,7 @@ function openPrivacyPolicy() {
 export default function SettingsScreen() {
   const c = useThemeColors();
   const { preference, setPreference } = useTheme();
+  const [arrivalReservePct, setArrivalReservePct] = useArrivalReservePct();
   const isOffline = useIsOffline();
   const insets = useSafeAreaInsets();
 
@@ -79,6 +91,22 @@ export default function SettingsScreen() {
             />
             <ThemedText style={[styles.caption, { color: c.textMuted }]}>
               Applies instantly across the app.
+            </ThemedText>
+          </Section>
+
+          {/* Trip planning — a device setting rather than a per-trip control: the reserve is how
+              cautious the driver is, not a property of one journey, and it must not be re-asked
+              on every plan. Sent to the planner as `reservePct`. */}
+          <Section title="Trip planning">
+            <ThemedText style={[styles.fieldLabel, { color: c.text }]}>Arrive with at least</ThemedText>
+            <SegmentedControl
+              options={ARRIVAL_RESERVE_SEGMENTS}
+              value={String(arrivalReservePct)}
+              onChange={(value) => setArrivalReservePct(Number(value) as ArrivalReservePct)}
+            />
+            <ThemedText style={[styles.caption, { color: c.textMuted }]}>
+              The planner keeps this much battery in reserve at your destination and never plans a
+              leg that ends below it.
             </ThemedText>
           </Section>
 
@@ -165,6 +193,10 @@ const styles = StyleSheet.create({
   caption: {
     fontSize: 13,
     lineHeight: 18,
+  },
+  fieldLabel: {
+    fontSize: 15,
+    fontWeight: '600',
   },
   linkRow: {
     flexDirection: 'row',

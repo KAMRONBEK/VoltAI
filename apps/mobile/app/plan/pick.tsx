@@ -1,4 +1,5 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 import * as Location from 'expo-location';
 import { Stack, router } from 'expo-router';
 import { YandexMapView, type YandexMapViewRef } from 'expo-yandex-mapkit';
@@ -9,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { SHEET_PADDING_H, useSheetChrome } from '@/components/ui/app-sheet';
 import { PrimaryButton } from '@/components/ui/primary-button';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import {
@@ -31,6 +33,7 @@ export default function PickPointScreen() {
   const c = useThemeColors();
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
+  const chrome = useSheetChrome();
   const mapRef = useRef<YandexMapViewRef | null>(null);
 
   const target = useAtomValue(pickTargetAtom);
@@ -126,21 +129,30 @@ export default function PickPointScreen() {
         <View style={[styles.crosshairStem, { backgroundColor: c.tint }]} />
       </View>
 
-      <View style={[styles.panel, { backgroundColor: c.surface, borderColor: c.border, paddingBottom: insets.bottom + 16 }]}>
-        <ThemedText style={[styles.hint, { color: c.textMuted }]}>
-          Drag the map to place the pin, then confirm.
-        </ThemedText>
-        <View style={[styles.coordBox, { backgroundColor: c.surfaceSunken, borderColor: c.border }]}>
-          <MaterialIcons name="place" size={18} color={c.tint} />
-          <ThemedText style={[styles.coordText, { color: c.text }]}>
-            {readout.latitude.toFixed(5)}, {readout.longitude.toFixed(5)}
+      {/* The confirm tray: a content-sized sheet that cannot be swiped away — the same chrome as
+          every other panel in the app, over a map that stays live underneath. */}
+      <BottomSheet
+        enableDynamicSizing
+        enablePanDownToClose={false}
+        enableOverDrag={false}
+        accessibilityLabel="Confirm the pin"
+        {...chrome}>
+        <BottomSheetView style={[styles.panel, { paddingBottom: insets.bottom + 16 }]}>
+          <ThemedText style={[styles.hint, { color: c.textMuted }]}>
+            Drag the map to place the pin, then confirm.
           </ThemedText>
-        </View>
-        <PrimaryButton
-          label={`Use this ${target === 'from' ? 'starting point' : 'destination'}`}
-          onPress={confirm}
-        />
-      </View>
+          <View style={[styles.coordBox, { backgroundColor: c.surface, borderColor: c.border }]}>
+            <MaterialIcons name="place" size={18} color={c.tint} />
+            <ThemedText style={[styles.coordText, { color: c.text }]}>
+              {readout.latitude.toFixed(5)}, {readout.longitude.toFixed(5)}
+            </ThemedText>
+          </View>
+          <PrimaryButton
+            label={`Use this ${target === 'from' ? 'starting point' : 'destination'}`}
+            onPress={confirm}
+          />
+        </BottomSheetView>
+      </BottomSheet>
     </ThemedView>
   );
 }
@@ -157,15 +169,8 @@ const styles = StyleSheet.create({
   // A short stem below the ring so the pin reads as standing on the point, not floating over it.
   crosshairStem: { position: 'absolute', top: '50%', marginTop: 13, width: 2, height: 14 },
   panel: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: 14,
-    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingHorizontal: SHEET_PADDING_H,
     gap: 12,
   },
   hint: { fontSize: 13, lineHeight: 18 },

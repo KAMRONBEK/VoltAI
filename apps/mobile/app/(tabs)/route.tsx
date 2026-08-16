@@ -27,6 +27,7 @@ import {
   placeToPoint,
   type TripPoint,
 } from '@/lib/plan/tripPoints';
+import { useArrivalReservePct } from '@/lib/settings/appSettings';
 import { useThemeColors } from '@/lib/theme/theme-context';
 import { PLUG_OPTIONS, derivedSpec, isPlannable } from '@/lib/vehicles/garage';
 import {
@@ -50,6 +51,9 @@ export default function PlanInputScreen() {
   const selectCar = useSetAtom(selectCarAtom);
   const isLoaded = useAtomValue(garageLoadedAtom);
   const savedTrips = useAtomValue(savedTripsAtom);
+  // Read here so the caption below says what the planner will actually be held to; the value
+  // itself is set on the Settings tab and travels to the request inside `fetchPlan`.
+  const [arrivalReservePct] = useArrivalReservePct();
 
   const [origin, setOrigin] = useAtom(originPointAtom);
   const [destination, setDestination] = useAtom(destPointAtom);
@@ -216,7 +220,7 @@ export default function PlanInputScreen() {
               {spec && plugLabel ? (
                 <ThemedText style={[styles.caption, { color: c.textMuted }]}>
                   Planning with {spec.realRangeKm} km of range, {plugLabel} connector, up to{' '}
-                  {spec.dcPeakKw} kW.
+                  {spec.dcPeakKw} kW · arrive with ≥ {arrivalReservePct} %.
                 </ThemedText>
               ) : null}
             </>

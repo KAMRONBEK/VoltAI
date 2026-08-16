@@ -1,12 +1,13 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Stack, router } from 'expo-router';
 import { useAtomValue, useSetAtom } from 'jotai';
-import React from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import React, { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { ConfirmSheet } from '@/components/ui/dialog-sheet';
 import { EmptyState } from '@/components/ui/empty-state';
 import { deleteTripAtom, savedTripsAtom } from '@/lib/plan/plan-history-atoms';
 import { formatDuration } from '@/lib/plan/planClient';
@@ -26,17 +27,8 @@ export default function PlanHistoryScreen() {
   const insets = useSafeAreaInsets();
   const trips = useAtomValue(savedTripsAtom);
   const removeTrip = useSetAtom(deleteTripAtom);
-
-  const confirmDelete = (trip: SavedTrip) => {
-    Alert.alert(
-      'Forget this trip?',
-      `${trip.params.fromLabel} → ${trip.params.toLabel} will no longer be available offline.`,
-      [
-        { text: 'Keep', style: 'cancel' },
-        { text: 'Forget', style: 'destructive', onPress: () => void removeTrip(trip.id) },
-      ]
-    );
-  };
+  /** The trip whose "Forget?" sheet is open. */
+  const [pendingDelete, setPendingDelete] = useState<SavedTrip | null>(null);
 
   return (
     <ThemedView style={styles.root}>
@@ -75,7 +67,7 @@ export default function PlanHistoryScreen() {
                     {trip.carLabel || 'Unnamed car'} · saved {formatSavedAt(trip.savedAt)}
                   </ThemedText>
                 </Pressable>
-                <Pressable onPress={() => confirmDelete(trip)} hitSlop={10} style={styles.delete}>
+                <Pressable onPress={() => setPendingDelete(trip)} hitSlop={10} style={styles.delete}>
                   <MaterialIcons name="delete-outline" size={22} color={c.textMuted} />
                 </Pressable>
               </View>
@@ -83,6 +75,24 @@ export default function PlanHistoryScreen() {
           </>
         )}
       </ScrollView>
+
+      <ConfirmSheet
+        open={pendingDelete !== null}
+        onDismiss={() => setPendingDelete(null)}
+        title="Forget this trip?"
+        body={
+          pendingDelete
+            ? `${pendingDelete.params.fromLabel} → ${pendingDelete.params.toLabel} will no longer be available offline.`
+            : undefined
+        }
+        icon="delete-outline"
+        confirmLabel="Forget"
+        cancelLabel="Keep"
+        destructive
+        onConfirm={() => {
+          if (pendingDelete) void removeTrip(pendingDelete.id);
+        }}
+      />
     </ThemedView>
   );
 }

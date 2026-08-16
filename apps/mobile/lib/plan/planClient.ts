@@ -1,4 +1,9 @@
 import { API_BASE_URL } from '@/lib/apiBaseUrl';
+import {
+  DEFAULT_ARRIVAL_RESERVE_PCT,
+  getArrivalReservePct,
+  type ArrivalReservePct,
+} from '@/lib/settings/appSettings';
 import type { Plug } from '@/lib/vehicles/garage';
 
 /**
@@ -65,8 +70,18 @@ export interface PlanResponse {
       curve: string;
       style: string;
       temp: string;
+      /** The `reservePct` the request was planned with. Older backends omit it. */
+      reservePct?: number;
     };
   };
+  /**
+   * The destination arrival reserve the plan was held to. Every option's `arriveSocPct` is at
+   * least `destinationPct` (to rounding), and `feasible: false` means no plan clears it.
+   * `destinationKm` is the same reserve in km of planning range after the planner's 25 km floor,
+   * so for a short-range car `destinationPct` can be higher than the value that was requested.
+   * Older backends omit the whole object.
+   */
+  reserve?: { destinationPct: number; destinationKm: number };
   relaxations: string[];
   diagnostics: {
     computeMs: number;
@@ -102,6 +117,11 @@ export interface PlanRequest {
   style: 'relaxed' | 'normal' | 'fast';
   temp: 'mild' | 'winter';
   live?: boolean;
+  /**
+   * "Arrive with at least N %". When absent, `fetchPlan` fills it from the persisted app
+   * setting and `buildPlanUrl` falls back to the planner's default (20).
+   */
+  reservePct?: ArrivalReservePct;
 }
 
 export class PlanError extends Error {
@@ -128,16 +148,24 @@ export function buildPlanUrl(req: PlanRequest): string {
     style: req.style,
     temp: req.temp,
     live: req.live === false ? '0' : '1',
+    // Always sent, even at the default: the answer depends on it, and the server's cache key
+    // (ETag) is built from the literal query, so a plan must say which reserve it was held to.
+    reservePct: String(req.reservePct ?? DEFAULT_ARRIVAL_RESERVE_PCT),
   });
   return `${API_BASE_URL}/api/plan?${q.toString()}`;
 }
 
 export async function fetchPlan(req: PlanRequest): Promise<PlanResponse> {
+  // The reserve is a device setting, not a per-trip input, so a caller that does not name one
+  // gets the user's choice rather than the default. Read before the timer starts: it is one
+  // AsyncStorage read on the first plan and a memory read after that, and it never rejects.
+  const reservePct = req.reservePct ?? (await getArrivalReservePct());
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
-    const res = await fetch(buildPlanUrl(req), { signal: controller.signal });
+    const res = await fetch(buildPlanUrl({ ...req, reservePct }), { signal: controller.signal });
 
     if (res.status === 503) {
       throw new PlanError('The planner is busy right now. Try again in a moment.', 'busy', 503);

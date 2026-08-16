@@ -15,7 +15,7 @@ import { envInt } from "../env";
 import { getMeta } from "../repositories/metaRepo";
 import { isRoutablePlug, loadCandidateStations, ROUTABLE_PLUGS } from "../repositories/plannerRepo";
 import { Corridor, decodePolyline, haversineKm } from "../services/planner/corridor";
-import { planRoute, type Plan, type PlanResult } from "../services/planner/planner";
+import { DEFAULT_RESERVE_PCT, planRoute, type Plan, type PlanResult } from "../services/planner/planner";
 import { getRoute, routingHealth, type LatLng } from "../services/routing/mytaxi";
 import { applyCache, cacheControl, etagFor, type CachePolicy } from "../utils/httpCache";
 
@@ -114,6 +114,9 @@ const KNOB_LIMITS = {
   consWhKm: { min: 80, max: 500, fallback: 180, unit: "Wh/km" },
   minKw: { min: 0, max: 400, fallback: 50, unit: "kW (minimum charger power)" },
   maxDetourKm: { min: 0, max: 30, fallback: 5, unit: "km" },
+  // Destination arrival reserve, percent of planning range. Below 10 the reserve stops being one;
+  // above 40 the planner spends most of the trip charging to protect battery it never uses.
+  reservePct: { min: 10, max: 40, fallback: DEFAULT_RESERVE_PCT, unit: "% (arrival reserve, whole percent)" },
 } as const;
 
 const CURVE_PRESETS = ["lfp", "standard", "peaky"] as const;
@@ -167,6 +170,7 @@ interface ParsedQuery {
   tempDerate: number;
   minKw: number;
   maxDetourKm: number;
+  reservePct: number;
   live: boolean;
   styleName: string;
   tempName: string;
@@ -231,6 +235,13 @@ function parseQuery(q: Record<string, unknown>): ParsedQuery | ParseError {
   if (typeof minKw !== "number") return minKw;
   const maxDetourKm = knob(q, "maxDetourKm");
   if (typeof maxDetourKm !== "number") return maxDetourKm;
+  const reservePct = knob(q, "reservePct");
+  if (typeof reservePct !== "number") return reservePct;
+  // Whole percent only: the mobile client offers 15/20/25 and the ETag below is keyed on the
+  // literal value, so "20.5" would be a cache miss for a plan indistinguishable from 20.
+  if (!Number.isInteger(reservePct)) {
+    return { field: "reservePct", reason: "invalid-reservePct", message: "reservePct must be a whole number 10-40 (percent)" };
+  }
 
   const curveRaw = typeof q.curve === "string" ? q.curve : "standard";
   const curve = (CURVE_PRESETS as readonly string[]).includes(curveRaw)
@@ -253,6 +264,7 @@ function parseQuery(q: Record<string, unknown>): ParsedQuery | ParseError {
     tempDerate: TEMPS[tempName],
     minKw,
     maxDetourKm,
+    reservePct,
     live: q.live !== "0",
     styleName,
     tempName,
@@ -287,6 +299,7 @@ function planTag(p: ParsedQuery, lastMergeAt: string | null, geom: "routed" | "e
     p.tempName,
     p.minKw,
     p.maxDetourKm,
+    p.reservePct,
     p.live ? "1" : "0",
     geom,
   ].join("-");
@@ -442,6 +455,7 @@ router.get("/", async (req, res, next) => {
         tempDerate: parsed.tempDerate,
         minKw: parsed.minKw,
         maxDetourKm: parsed.maxDetourKm,
+        reservePct: parsed.reservePct,
       });
       const computeMs = Date.now() - started;
 
@@ -473,7 +487,16 @@ router.get("/", async (req, res, next) => {
             curve: parsed.curve,
             style: parsed.styleName,
             temp: parsed.tempName,
+            reservePct: parsed.reservePct,
           },
+        },
+        // The destination arrival reserve the plan was held to: every option's `arriveSocPct` is
+        // at least `destinationPct` (to rounding), and `feasible:false` means no plan clears it.
+        // `destinationKm` is the same thing in planning-km, after the 25 km floor — for a
+        // short-range car it can be MORE than `destinationPct` of the planning range.
+        reserve: {
+          destinationPct: Number(((result.diagnostics.reserveDestKm / result.diagnostics.planningRangeKm) * 100).toFixed(1)),
+          destinationKm: Number(result.diagnostics.reserveDestKm.toFixed(1)),
         },
         relaxations: result.relaxations,
         diagnostics: {
@@ -496,19 +519,24 @@ router.get("/", async (req, res, next) => {
 
       if (!result.feasible && result.blockingGap) {
         const g = result.blockingGap;
+        // A charger a few km short of the destination is not a bail-out: anyone who can reach
+        // it can reach the destination. So the question is not "does the gap touch the final
+        // metre" but "is there anywhere inside it worth stopping" — hence a tolerance in the
+        // same order as the detour limit rather than a strict endpoint test.
+        const endsAtDestination = corridor.totalKm - g.toKm < 10;
         body.blockingGap = {
           fromKm: Number(g.fromKm.toFixed(1)),
           toKm: Number(g.toKm.toFixed(1)),
           gapKm: Number(g.gapKm.toFixed(1)),
-          // A charger a few km short of the destination is not a bail-out: anyone who can reach
-          // it can reach the destination. So the question is not "does the gap touch the final
-          // metre" but "is there anywhere inside it worth stopping" — hence a tolerance in the
-          // same order as the detour limit rather than a strict endpoint test.
-          endsAtDestination: corridor.totalKm - g.toKm < 10,
+          endsAtDestination,
           reason:
             `No ${PLUG_LABELS[parsed.plug]} charger at or above ${parsed.minKw} kW for ${g.gapKm.toFixed(0)} km ` +
             `(km ${g.fromKm.toFixed(0)}-${g.toKm.toFixed(0)}), which is further than this car can go ` +
-            `on a full charge while keeping its reserve.`,
+            // Only the final leg is held to the user's arrival reserve; a mid-trip gap is held to
+            // the (fixed) intermediate reserve, so naming the percentage there would mislead.
+            (endsAtDestination
+              ? `on a full charge while keeping its ${parsed.reservePct}% arrival reserve.`
+              : `on a full charge while keeping its reserve.`),
         };
         body.suggestions = [
           "Try the 'relaxed' driving style if you can hold a lower speed",

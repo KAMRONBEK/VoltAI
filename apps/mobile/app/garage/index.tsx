@@ -1,11 +1,12 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Stack, router } from 'expo-router';
-import React from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import React, { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { ConfirmSheet } from '@/components/ui/dialog-sheet';
 import { EmptyState } from '@/components/ui/empty-state';
 import { PrimaryButton } from '@/components/ui/primary-button';
 import { Tag } from '@/components/ui/tag';
@@ -29,13 +30,8 @@ export default function GarageScreen() {
   const isLoaded = useAtomValue(garageLoadedAtom);
   const removeCar = useSetAtom(removeCarAtom);
   const selectCar = useSetAtom(selectCarAtom);
-
-  const confirmRemove = (car: SavedCar) => {
-    Alert.alert('Remove car', `Remove ${car.label || 'this car'} from your garage?`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Remove', style: 'destructive', onPress: () => removeCar(car.id) },
-    ]);
-  };
+  /** The car whose "Remove?" sheet is open. */
+  const [pendingRemove, setPendingRemove] = useState<SavedCar | null>(null);
 
   return (
     <ThemedView style={styles.root}>
@@ -100,7 +96,7 @@ export default function GarageScreen() {
                     <ThemedText style={[styles.smallButtonText, { color: c.text }]}>Edit</ThemedText>
                   </Pressable>
                   <Pressable
-                    onPress={() => confirmRemove(car)}
+                    onPress={() => setPendingRemove(car)}
                     style={[styles.smallButton, { borderColor: c.border }]}>
                     <ThemedText style={[styles.smallButtonText, { color: c.danger }]}>Remove</ThemedText>
                   </Pressable>
@@ -117,6 +113,19 @@ export default function GarageScreen() {
           needs (range, connector, charging speed) go to the server, never a name or an identity.
         </ThemedText>
       </ScrollView>
+
+      <ConfirmSheet
+        open={pendingRemove !== null}
+        onDismiss={() => setPendingRemove(null)}
+        title="Remove car"
+        body={`Remove ${pendingRemove?.label || 'this car'} from your garage?`}
+        icon="delete-outline"
+        confirmLabel="Remove"
+        destructive
+        onConfirm={() => {
+          if (pendingRemove) removeCar(pendingRemove.id);
+        }}
+      />
     </ThemedView>
   );
 }

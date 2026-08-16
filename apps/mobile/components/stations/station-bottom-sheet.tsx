@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { TAB_BAR_CLEARANCE } from '@/components/floating-tab-bar';
 import { ThemedText } from '@/components/themed-text';
+import { SHEET_PADDING_H, useSheetChrome } from '@/components/ui/app-sheet';
 import { StatusDot } from '@/components/ui/status-dot';
 import { categoryInfo } from '@/lib/categories';
 import { operatorFor } from '@/lib/operators';
@@ -79,6 +80,7 @@ function fallbackNavUrl(s: Station): string {
 export function StationBottomSheet({ stations, onClose }: Props) {
   const c = useThemeColors();
   const insets = useSafeAreaInsets();
+  const chrome = useSheetChrome();
   const sheetRef = useRef<BottomSheet | null>(null);
   const snapPoints = useMemo(() => [200, 380, '88%'], []);
 
@@ -178,8 +180,7 @@ export function StationBottomSheet({ stations, onClose }: Props) {
       snapPoints={snapPoints}
       enablePanDownToClose
       onClose={onClose}
-      backgroundStyle={[styles.sheetBackground, { backgroundColor: c.background }]}
-      handleIndicatorStyle={{ backgroundColor: c.handle }}>
+      {...chrome}>
       <BottomSheetScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + TAB_BAR_CLEARANCE }]}
         showsVerticalScrollIndicator={false}>
@@ -387,8 +388,7 @@ export function StationBottomSheet({ stations, onClose }: Props) {
 }
 
 const styles = StyleSheet.create({
-  sheetBackground: { borderTopLeftRadius: 24, borderTopRightRadius: 24 },
-  content: { flexGrow: 1, paddingHorizontal: 16, paddingTop: 6, paddingBottom: 20 },
+  content: { flexGrow: 1, paddingHorizontal: SHEET_PADDING_H, paddingTop: 6, paddingBottom: 20 },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   logoBox: {
     width: 52,

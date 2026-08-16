@@ -1,12 +1,13 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import Constants from 'expo-constants';
 import React, { useEffect, useState } from 'react';
-import { Alert, Linking, Modal, Platform, StyleSheet, View } from 'react-native';
+import { Linking, Platform, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
+import { AppSheet } from '@/components/ui/app-sheet';
+import { InfoSheet } from '@/components/ui/dialog-sheet';
 import { PrimaryButton } from '@/components/ui/primary-button';
-import { CARD_STYLE } from '@/components/ui/section';
 import {
   hasSeenMessage,
   isUpdateRequired,
@@ -19,8 +20,9 @@ import { useThemeColors } from '@/lib/theme/theme-context';
 /**
  * Applies `GET /api/client-config` to the running app:
  * - `maintenance` → a slim, non-blocking banner above everything ("data may be stale").
- * - `message` → shown once, as an alert; the hash of the text is remembered so it does not nag.
- * - `minAppVersion` above the installed version → a blocking "update required" sheet.
+ * - `message` → shown once, as an info sheet; the hash of the text is remembered so it does not nag.
+ * - `minAppVersion` above the installed version → a blocking, non-dismissable "update required"
+ *   sheet.
  *
  * Renders its children either way. Everything is fail-open: with no config (offline, an older
  * backend without the route) the app is exactly what it was before this component existed.
@@ -43,6 +45,8 @@ async function openStoreListing() {
 
 export function ClientConfigGate({ children }: { children: React.ReactNode }) {
   const [config, setConfig] = useState<ClientConfig | null>(null);
+  /** The one-off notice, until the user has read it. */
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,7 +56,7 @@ export function ClientConfigGate({ children }: { children: React.ReactNode }) {
       setConfig(cfg);
       if (cfg.message && !(await hasSeenMessage(cfg.message))) {
         if (cancelled) return;
-        Alert.alert('VoltAI', cfg.message);
+        setNotice(cfg.message);
         void markMessageSeen(cfg.message);
       }
     })();
@@ -69,6 +73,13 @@ export function ClientConfigGate({ children }: { children: React.ReactNode }) {
       {/* After the children so it paints on top: it overlays the navigator instead of pushing the
           whole tree down by its own height when it appears. */}
       {config?.maintenance ? <MaintenanceBanner /> : null}
+      <InfoSheet
+        open={notice !== null}
+        onDismiss={() => setNotice(null)}
+        title="VoltAI"
+        body={notice ?? undefined}
+        icon="campaign"
+      />
       {updateRequired ? <UpdateRequiredSheet minVersion={config?.minAppVersion ?? ''} /> : null}
     </View>
   );
@@ -94,27 +105,23 @@ function MaintenanceBanner() {
 
 function UpdateRequiredSheet({ minVersion }: { minVersion: string }) {
   const c = useThemeColors();
-  const insets = useSafeAreaInsets();
   return (
-    // Not dismissable: no `onRequestClose` action, no backdrop tap. The whole point is that this
-    // build must not keep talking to a backend that has moved on.
-    <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={() => {}}>
-      <View style={[styles.backdrop, { paddingBottom: insets.bottom + 16 }]}>
-        <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
-          <MaterialIcons name="system-update" size={28} color={c.tint} />
-          <ThemedText style={styles.title}>Update required</ThemedText>
-          <ThemedText style={[styles.body, { color: c.textMuted }]}>
-            This version of VoltAI ({APP_VERSION ?? '?'}) is no longer supported — the server now
-            needs {minVersion} or newer. Update to keep using the map and the trip planner.
-          </ThemedText>
-          {Platform.OS === 'android' ? (
-            <PrimaryButton label="Update in Google Play" onPress={() => void openStoreListing()} style={styles.button} />
-          ) : (
-            <ThemedText style={[styles.body, { color: c.textMuted }]}>Update VoltAI from the App Store.</ThemedText>
-          )}
-        </View>
-      </View>
-    </Modal>
+    // Not dismissable: no backdrop tap, no pan-down, no drag, no handle. The whole point is that
+    // this build must not keep talking to a backend that has moved on. Rendered only while the
+    // floor is unmet, and presented the moment it mounts.
+    <AppSheet open dismissable={false} accessibilityLabel="Update required" contentStyle={styles.updateContent}>
+      <MaterialIcons name="system-update" size={28} color={c.tint} />
+      <ThemedText style={styles.title}>Update required</ThemedText>
+      <ThemedText style={[styles.body, { color: c.textMuted }]}>
+        This version of VoltAI ({APP_VERSION ?? '?'}) is no longer supported — the server now
+        needs {minVersion} or newer. Update to keep using the map and the trip planner.
+      </ThemedText>
+      {Platform.OS === 'android' ? (
+        <PrimaryButton label="Update in Google Play" onPress={() => void openStoreListing()} style={styles.button} />
+      ) : (
+        <ThemedText style={[styles.body, { color: c.textMuted }]}>Update VoltAI from the App Store.</ThemedText>
+      )}
+    </AppSheet>
   );
 }
 
@@ -135,13 +142,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
   },
   bannerText: { fontSize: 13, fontWeight: '600', flex: 1 },
-  backdrop: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    padding: 16,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-  },
-  card: { ...CARD_STYLE, gap: 12, alignItems: 'flex-start' },
+  updateContent: { gap: 12, alignItems: 'flex-start' },
   title: { fontSize: 20, fontWeight: '800' },
   body: { fontSize: 14, lineHeight: 20 },
   button: { alignSelf: 'stretch', marginTop: 4 },
