@@ -8,11 +8,14 @@ import type { Locale } from "@/i18n/config";
 import { getDictionary } from "@/i18n/getDictionary";
 
 type Props = {
-  params: { lang: string };
+  // Next 16: route params arrive as a Promise and must be awaited — reading them
+  // synchronously yields undefined, which silently fell back to the default locale.
+  params: Promise<{ lang: string }>;
 };
 
-export function generateMetadata({ params }: Props): Metadata {
-  const lang = toLocale(params.lang) ?? defaultLocale;
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { lang: raw } = await params;
+  const lang = toLocale(raw) ?? defaultLocale;
   const t = getDictionary(lang);
   return {
     title: "VoltAI",
@@ -28,9 +31,10 @@ export function generateMetadata({ params }: Props): Metadata {
   };
 }
 
-export default function HomeByLang({ params }: Props) {
+export default async function HomeByLang({ params }: Props) {
   // Avoid redirect loops in edge/cached scenarios; fall back to default.
-  const lang: Locale = toLocale(params.lang) ?? defaultLocale;
+  const { lang: raw } = await params;
+  const lang: Locale = toLocale(raw) ?? defaultLocale;
   const t = getDictionary(lang);
 
   const supportEmail = "support@voltai.uz";

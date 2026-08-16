@@ -5,13 +5,16 @@ import type { Locale } from "@/i18n/config";
 import { getDictionary } from "@/i18n/getDictionary";
 
 type Props = {
-  params: { lang: string };
+  // Next 16: route params arrive as a Promise and must be awaited — reading them
+  // synchronously yields undefined, which silently fell back to the default locale.
+  params: Promise<{ lang: string }>;
 };
 
 const supportEmail = "support@voltai.uz";
 
-export function generateMetadata({ params }: Props): Metadata {
-  const lang = toLocale(params.lang) ?? defaultLocale;
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { lang: raw } = await params;
+  const lang = toLocale(raw) ?? defaultLocale;
   const t = getDictionary(lang);
   return {
     title: t.legal.privacy.title,
@@ -27,8 +30,9 @@ export function generateMetadata({ params }: Props): Metadata {
   };
 }
 
-export default function PrivacyByLang({ params }: Props) {
-  const lang: Locale = toLocale(params.lang) ?? defaultLocale;
+export default async function PrivacyByLang({ params }: Props) {
+  const { lang: raw } = await params;
+  const lang: Locale = toLocale(raw) ?? defaultLocale;
   const t = getDictionary(lang);
 
   return (
