@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: typecheck + lint (api, mobile, web)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: "1"
+      EXPO_NO_TELEMETRY: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install (root lockfile, all workspaces)
+        run: npm ci --no-audit --no-fund
+
+      # API: the merge/plan checks need the (gitignored) SQLite catalog, so CI runs the compiler
+      # and the build (incl. the version stamp) — the data checks stay in `npm run lint` locally.
+      - name: API — tsc + build
+        run: |
+          npx tsc -p apps/api/tsconfig.json --noEmit
+          npm run build -w voltai-api
+
+      - name: Mobile — tsc + expo lint
+        run: |
+          cd apps/mobile
+          npx tsc --noEmit
+          npx expo lint
+
+      - name: Web — lint + typecheck
+        run: |
+          cd apps/web
+          npx tsc --noEmit
+          npm run lint
+
+      # Shell scripts shipped to the phone must stay LF and syntactically valid.
+      - name: Phone scripts — bash -n + LF check
+        run: |
+          set -e
+          for f in apps/api/scripts/termux/*.sh apps/api/scripts/*.sh apps/api/scripts/phone/*.sh; do
+            bash -n "$f"
+            if grep -q $'\r' "$f"; then echo "CRLF line endings in $f" >&2; exit 1; fi
+          done
