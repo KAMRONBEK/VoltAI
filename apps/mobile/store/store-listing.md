@@ -6,15 +6,24 @@ Fill in every `PLACEHOLDER` before submission.
 ---
 
 ## App name
-**VoltAI**
+**VoltAI UZ** — store title on BOTH stores (decided 2026-08-16 after a naming study; "VoltAI" alone is
+taken on the App Store — an unrelated photo-to-video app — and Apple enforces one unique name
+store-wide regardless of country; "UZ" is the local convention ("Uzum Market … UZ", "E-One UZ",
+K-Watt.uz) and mirrors the bundle id `uz.voltai.app`). The launcher name / icon label on the phone
+stays **VoltAI** (`app.json` → `expo.name`).
 
-- Play Store title (<= 30 chars): `VoltAI` (6) — or `VoltAI: EV Charging Map` (23) if a descriptor is wanted.
-- App Store name (<= 30 chars): `VoltAI` (6)
+- App Store name (<= 30 chars): `VoltAI UZ` (9). Note: the Uzbekistan storefront has ONE localization,
+  English (U.K.) — Uzbek is not an App Store Connect language — so the Russian/Uzbek search words go
+  into the SUBTITLE and KEYWORDS of that single localization (below).
+- Play Store title (<= 30 chars): default `VoltAI UZ`; localized titles (Play allows per-language titles):
+  ru `VoltAI UZ – Электрозаправки` (26), uz `VoltAI UZ – Zaryadka` (20).
+- Rejected (research 2026-08-16): "Tok" (reads as a Tokbor sub-brand), "Quvvat/Kuvvat" (phonetic twin of
+  Quwatt / K-Watt), "O'zbekiston"/"Yo'l" (apostrophe variants break search), "Zapravka" (= petrol station).
 
 ## App Store subtitle (<= 30 chars)
-`EV charger map for Uzbekistan` (29)
-
-Alternate: `Live EV charging station map` (28)
+`Электрозаправки Узбекистана` (27) — Cyrillic on purpose: it is the everyday word Russian-keyboard users
+in Tashkent type, and the UZ storefront's only localization is English (U.K.), so this is the one place
+it can go. Alternates: `EV charger map for Uzbekistan` (29), `Zaryadka stansiyalari xaritasi` (30).
 
 ## Play short description (<= 80 chars)
 `Live EV charger map for Uzbekistan — availability across every operator.` (72)
@@ -85,4 +94,12 @@ Suggested 12–15 keyword set:
 
 ## Localization note
 
-Primary market is Uzbekistan. Consider providing Russian (`ru`) and Uzbek (`uz`) localized name, subtitle, description, and keywords in addition to English for better store search and conversion. UI language and map locale are currently `ru_RU`.
+Primary market is Uzbekistan. Provide Russian (`ru`) and Uzbek (`uz`) localized name, subtitle,
+description, and keywords in addition to English for better store search and conversion. UI language
+and map locale are currently `ru_RU`. Short descriptions to paste:
+
+- ru (<= 80): `Живая карта зарядок для электромобилей в Узбекистане — все операторы на одной карте.`
+- uz (<= 80): `Oʻzbekistondagi elektromobil zaryadka stansiyalari — barcha operatorlar bitta xaritada.`
+
+Full descriptions in ru/uz: translate the English block above 1:1 (same claims — no additions);
+keep the "independent app, not affiliated, data may be delayed" paragraph in every language.

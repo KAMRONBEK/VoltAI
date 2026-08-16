@@ -6,9 +6,14 @@ Why it is built this way: [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md).
 
 > **Status (2026-08-16):** the phone actually in service is the ASUS Zenfone 10 (AI2302, Android 15).
 > Everything in §1–§3 and §5–§7 has been run on it end-to-end over ssh (deploy, supervision, boot
-> hook, backup + restore drill, smoke test). **§4 (tunnel) and Gate 2 (DNS) still need the owner's
-> Cloudflare/ahost.uz logins** — until then the API is reachable only on the phone itself
-> (`http://127.0.0.1:8080`, e.g. from the app installed on the same phone, or over `adb forward`).
+> hook, backup + restore drill, smoke test, and an **unattended reboot test: `adb reboot` → API,
+> tunnel, watchdog and sshd all back and `ready` after 60 s with nobody touching the phone**).
+> Cloudflare side (same day, via API): zone `voltai.uz` created with every ahost.uz record incl.
+> DKIM, tunnel `voltai-api` (remotely-managed, token on the phone, connector **healthy**),
+> `api` → tunnel CNAME (proxied), SSL Full (strict), Always-HTTPS, Cache Rules on
+> `/api/stations*`, `/api/plan*`, `/api/client-config` (never `/api/health*`, `/ingest`), rate
+> limit 20 req/10 s per IP on `/api/plan*`. **The nameserver switch at ahost.uz was submitted; the
+> zone goes Active once the .uz registry publishes `carmelo/lauryn.ns.cloudflare.com`.**
 
 ## Reliability caveats — read before you trust a phone with this
 - **Android 15 kills long-running Termux processes** even with wake-lock + battery-unrestricted
