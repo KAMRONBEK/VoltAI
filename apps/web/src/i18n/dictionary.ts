@@ -33,9 +33,9 @@ export type Dictionary = {
     faqTitle: string;
   };
   screenshotLabels: {
-    search: string;
+    map: string;
     details: string;
-    filters: string;
+    planner: string;
   };
   features: Array<{ title: string; body: string }>;
   faq: Array<{ q: string; a: string }>;
@@ -125,13 +125,13 @@ export const dictionaries: Record<Locale, Dictionary> = {
       whySubtitle: "Oddiy, tez va real hayotdagi zaryadlash jarayoni uchun.",
       screenshotsTitle: "Skrinshotlar",
       screenshotsSubtitle:
-        "Hozircha maket. Keyin istalgan payt haqiqiy rasmlarni qo‘shasiz.",
+        "Ilovaning haqiqiy ekranlari: xarita, stansiya kartochkasi va safar rejalashtiruvchi.",
       faqTitle: "Savol-javob",
     },
     screenshotLabels: {
-      search: "Qidiruv",
+      map: "Xarita",
       details: "Stansiya tafsilotlari",
-      filters: "Filtrlar",
+      planner: "Safar rejasi",
     },
     features: [
       {
@@ -286,13 +286,13 @@ export const dictionaries: Record<Locale, Dictionary> = {
       whySubtitle: "Просто, быстро и для реальных сценариев зарядки.",
       screenshotsTitle: "Скриншоты",
       screenshotsSubtitle:
-        "Пока заглушки — позже замените на реальные изображения.",
+        "Реальные экраны приложения: карта, карточка станции и планировщик поездки.",
       faqTitle: "FAQ",
     },
     screenshotLabels: {
-      search: "Поиск",
+      map: "Карта",
       details: "Детали станции",
-      filters: "Фильтры",
+      planner: "Планировщик",
     },
     features: [
       { title: "Быстрый поиск", body: "Станции рядом и по маршруту." },
@@ -435,10 +435,10 @@ export const dictionaries: Record<Locale, Dictionary> = {
       whySubtitle: "Simple, fast, and built for real-world charging workflows.",
       screenshotsTitle: "Screenshots",
       screenshotsSubtitle:
-        "Placeholder frames for now — drop in real app images anytime.",
+        "Real screens from the app: the map, a station card, and the trip planner.",
       faqTitle: "FAQ",
     },
-    screenshotLabels: { search: "Search", details: "Station details", filters: "Filters" },
+    screenshotLabels: { map: "Map", details: "Station details", planner: "Trip planner" },
     features: [
       {
         title: "Find stations fast",

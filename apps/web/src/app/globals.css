@@ -1,15 +1,45 @@
 @import "tailwindcss";
 
+/*
+ * Palette mirrors the mobile app's dark scheme, token for token
+ * (apps/mobile/constants/theme.ts). The site and the app are one product, so a
+ * surface here and a card there must be the same colour — when the app's tokens
+ * move, move these with them.
+ *
+ * The site is dark-only on purpose: the app ships a light scheme too, but every
+ * store screenshot and the icon are dark, and a light marketing page framing dark
+ * screenshots reads as two different products.
+ */
 :root {
-  /* Dark-first palette (VoltAI: dark + neon green) */
-  --background: #0b0f0c;
-  --foreground: #eaffee;
-  --surface: rgba(255, 255, 255, 0.06);
-  --surface-2: rgba(255, 255, 255, 0.09);
-  --border: rgba(255, 255, 255, 0.12);
-  --muted: rgba(234, 255, 238, 0.72);
-  --accent: #39ff14;
-  --accent-2: #00e5a8;
+  /* — App dark scheme (Colors.dark) — */
+  --background: #0b0f0d;
+  --surface: #151a17;
+  --surface-2: #1c2320;
+  --surface-sunken: #0e1210;
+
+  --foreground: #ecedee;
+  --muted: #9ba1a6;
+
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.18);
+
+  /* brandGreenNeon — tab active, links, filled CTAs. */
+  --accent: #2fe28a;
+  /* Ink that sits on top of --accent. The app's CTAs are dark-on-green, never white-on-green. */
+  --on-accent: #07120b;
+
+  /* Charger status, shared with the app's map markers. */
+  --status-available: #2fe28a;
+  --status-in-use: #f7b84b;
+  --status-offline: #8a9099;
+
+  /* Logo gradient, sampled from apps/mobile/assets/brand/logo.png. */
+  --bolt-from: #5cf48c;
+  --bolt-to: #18c660;
+  /* Wordmark, sampled from apps/mobile/assets/brand/wordmark.png: "Volt" is the
+     mid green, "AI" is the pale green. */
+  --wordmark-volt: #4cee82;
+  --wordmark-ai: #7bff9d;
 
   color-scheme: dark;
 }
@@ -19,57 +49,62 @@
   --color-foreground: var(--foreground);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
+  --color-surface-sunken: var(--surface-sunken);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-muted: var(--muted);
   --color-accent: var(--accent);
-  --color-accent-2: var(--accent-2);
+  --color-on-accent: var(--on-accent);
+  --color-status-available: var(--status-available);
+  --color-status-in-use: var(--status-in-use);
+  --color-status-offline: var(--status-offline);
 
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-/* Optional light theme (not used by default) */
-.light {
-  --background: #f7f8ff;
-  --foreground: #0b1020;
-  --surface: rgba(11, 16, 32, 0.06);
-  --surface-2: rgba(11, 16, 32, 0.09);
-  --border: rgba(11, 16, 32, 0.12);
-  --muted: rgba(11, 16, 32, 0.74);
-  --accent: #1aa300;
-  --accent-2: #00b985;
-  color-scheme: light;
-}
-
 body {
-  background: radial-gradient(900px 600px at 15% 10%, rgba(57, 255, 20, 0.16), transparent 60%),
-    radial-gradient(700px 500px at 80% 20%, rgba(0, 229, 168, 0.12), transparent 55%),
+  /* The app icon's ground: near-black with one soft green bloom, not a neon wash. */
+  background:
+    radial-gradient(900px 620px at 18% -5%, rgba(47, 226, 138, 0.1), transparent 62%),
     var(--background);
+  background-attachment: fixed;
   color: var(--foreground);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
     Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--accent) 38%, transparent);
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
 @layer components {
-  .neo-card {
+  /*
+   * The app's card: a solid raised surface with a hairline border. Flat and opaque —
+   * the previous glassmorphic treatment (blur + heavy drop shadow) exists nowhere in
+   * the app, which draws cards as plain filled rectangles.
+   */
+  .app-card {
     border: 1px solid var(--border);
-    background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 75%, transparent), var(--surface));
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.06) inset,
-      0 24px 80px rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(10px);
+    background: var(--surface);
   }
 
-  .neo-ring {
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent),
-      0 0 40px color-mix(in srgb, var(--accent) 18%, transparent);
+  /* Second elevation, for a card sitting on a card (the app's chips and nested rows). */
+  .app-card-2 {
+    border: 1px solid var(--border);
+    background: var(--surface-2);
   }
 
+  /* The app's small uppercase section label — "CAR", "BATTERY NOW", "FROM". */
+  .app-eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* Rounded square that holds the logo bolt, echoing the app icon's tile. */
   .volt-mark {
     position: relative;
     display: inline-flex;
@@ -77,92 +112,79 @@ body {
     justify-content: center;
     height: 2rem;
     width: 2rem;
-    border-radius: 0.75rem;
-    background: var(--surface);
-    border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent),
-      0 0 26px color-mix(in srgb, var(--accent) 14%, transparent);
+    flex: none;
+    border-radius: 0.6rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
     overflow: hidden;
   }
 
   .volt-mark::before {
     content: "";
     position: absolute;
-    inset: -10px;
+    inset: -30%;
     background: radial-gradient(
-      circle at 35% 30%,
-      color-mix(in srgb, var(--accent) 36%, transparent),
-      transparent 55%
+      circle at 32% 26%,
+      color-mix(in srgb, var(--accent) 30%, transparent),
+      transparent 58%
     );
-    filter: blur(10px);
-    opacity: 0.45;
-    animation: volt-pulse 2.2s ease-in-out infinite;
     pointer-events: none;
   }
 
   .volt-bolt {
-    color: var(--accent);
-    filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 35%, transparent));
+    position: relative;
+    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 28%, transparent));
   }
 
-  .volt-bolt path[data-anim="dash"] {
-    stroke-dasharray: 230;
-    stroke-dashoffset: 230;
-    animation: volt-dash 1.8s linear infinite;
-  }
-
+  /* The "Live" pill's pulsing dot, as seen on the app's map. */
   .volt-charge-dot {
-    box-shadow: 0 0 0 0 rgba(57, 255, 20, 0.0);
-    animation: volt-charge 1.7s ease-in-out infinite;
+    animation: volt-charge 1.9s ease-in-out infinite;
   }
-}
 
-@keyframes volt-pulse {
-  0%,
-  100% {
-    opacity: 0.25;
-    transform: scale(0.98);
+  /* FAQ row: a chevron that rotates open, so a <details> reads as expandable. */
+  .app-faq summary::after {
+    content: "";
+    width: 0.5rem;
+    height: 0.5rem;
+    flex: none;
+    border-right: 2px solid var(--muted);
+    border-bottom: 2px solid var(--muted);
+    transform: rotate(45deg) translate(-2px, -2px);
+    transition: transform 150ms ease;
   }
-  50% {
-    opacity: 0.55;
-    transform: scale(1.03);
-  }
-}
 
-@keyframes volt-dash {
-  0% {
-    stroke-dashoffset: 230;
-    opacity: 0.9;
+  .app-faq[open] summary::after {
+    transform: rotate(-135deg) translate(-2px, -2px);
   }
-  55% {
-    opacity: 0.9;
+
+  /* Phone frame for the store screenshots. */
+  .app-phone {
+    border-radius: 1.75rem;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-sunken);
+    padding: 0.4rem;
+    overflow: hidden;
   }
-  100% {
-    stroke-dashoffset: 0;
-    opacity: 0.25;
+
+  .app-phone img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 1.4rem;
   }
 }
 
 @keyframes volt-charge {
   0%,
   100% {
-    transform: scale(1);
-    box-shadow:
-      0 0 0 0 rgba(57, 255, 20, 0.0),
-      0 0 18px rgba(57, 255, 20, 0.0);
+    box-shadow: 0 0 0 0 rgba(47, 226, 138, 0);
   }
   50% {
-    transform: scale(1.05);
-    box-shadow:
-      0 0 0 6px rgba(57, 255, 20, 0.08),
-      0 0 18px rgba(57, 255, 20, 0.22);
+    box-shadow: 0 0 0 5px rgba(47, 226, 138, 0.12);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .volt-mark::before,
-  .volt-bolt path[data-anim="dash"],
   .volt-charge-dot {
     animation: none !important;
   }

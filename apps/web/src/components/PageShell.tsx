@@ -27,7 +27,7 @@ export function PageShell({
       <SiteHeader lang={lang} labels={{ ...dict.nav, languageShort: dict.languageShort }} />
       <main className="py-12 sm:py-16">
         <Container>
-          <div className="neo-card rounded-3xl p-8 sm:p-10">
+          <div className="app-card rounded-3xl p-8 sm:p-10">
             <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
               {title}
             </h1>

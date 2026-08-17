@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Container } from "@/components/Container";
 import { VoltMark } from "@/components/VoltMark";
+import { VoltWordmark } from "@/components/VoltWordmark";
 import type { Locale } from "@/i18n/config";
 import { locales } from "@/i18n/config";
 import { cx } from "@/lib/cx";
@@ -16,22 +17,26 @@ type Props = {
 
 export function SiteHeader({ lang, labels }: Props) {
   return (
-    <header className="sticky top-0 z-50 border-b border-border/70 bg-background/55 backdrop-blur">
-      <Container className="flex h-16 items-center justify-between">
-        <Link href={`/${lang}`} className="flex items-center gap-2">
+    <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-md">
+      <Container className="flex h-16 items-center justify-between gap-4">
+        <Link href={`/${lang}`} className="flex items-center gap-2.5">
           <VoltMark />
-          <span className="text-sm font-semibold tracking-wide">VoltAI</span>
+          <VoltWordmark className="text-base" />
         </Link>
 
-        <nav className="flex items-center gap-6 text-sm text-muted">
-          <div className="hidden items-center gap-2 sm:flex">
+        <nav className="flex items-center gap-4 text-sm text-muted sm:gap-6">
+          {/* The app's segmented control: a sunken track with the active item filled. */}
+          <div className="hidden items-center gap-1 rounded-full border border-border bg-surface-sunken p-1 sm:flex">
             {locales.map((l) => (
               <Link
                 key={l}
                 href={`/${l}`}
+                aria-current={l === lang ? "page" : undefined}
                 className={cx(
-                  "rounded-full border border-transparent px-2 py-1 text-xs transition hover:text-foreground",
-                  l === lang ? "border-border/70 bg-surface text-foreground" : ""
+                  "rounded-full px-2.5 py-1 text-xs font-medium transition",
+                  l === lang
+                    ? "bg-surface-2 text-foreground"
+                    : "text-muted hover:text-foreground"
                 )}
                 aria-label={`Switch language to ${l}`}
               >
@@ -39,16 +44,10 @@ export function SiteHeader({ lang, labels }: Props) {
               </Link>
             ))}
           </div>
-          <Link
-            href={`/${lang}/privacy`}
-            className="hover:text-foreground transition"
-          >
+          <Link href={`/${lang}/privacy`} className="transition hover:text-foreground">
             {labels.privacy}
           </Link>
-          <Link
-            href={`/${lang}/terms`}
-            className="hover:text-foreground transition"
-          >
+          <Link href={`/${lang}/terms`} className="transition hover:text-foreground">
             {labels.terms}
           </Link>
         </nav>
@@ -56,4 +55,3 @@ export function SiteHeader({ lang, labels }: Props) {
     </header>
   );
 }
-

@@ -1,11 +1,28 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#0B0F0C" />
-  <path
-    d="M292 96L164 296h92l-20 120 152-232h-96z"
-    fill="none"
-    stroke="#39FF14"
-    stroke-width="28"
-    stroke-linejoin="round"
-    stroke-linecap="round"
-  />
+  <!-- The app icon, as vector. Geometry traced from apps/mobile/assets/brand/logo.png;
+       gradient stops sampled from the same file. -->
+  <defs>
+    <linearGradient id="bolt" x1="18%" y1="0%" x2="82%" y2="100%">
+      <stop offset="0%" stop-color="#5CF48C" />
+      <stop offset="100%" stop-color="#18C660" />
+    </linearGradient>
+    <radialGradient id="bloom" cx="32%" cy="28%" r="62%">
+      <stop offset="0%" stop-color="#2FE28A" stop-opacity="0.18" />
+      <stop offset="100%" stop-color="#2FE28A" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#0B0F0D" />
+  <rect width="512" height="512" rx="112" fill="url(#bloom)" />
+  <!-- Scaled about the centre so the bolt occupies the same share of the tile as the
+       app icon does (~62% of its height), rather than filling it edge to edge. -->
+  <g transform="translate(256 256) scale(0.84) translate(-257.5 -256)">
+    <path
+      d="M291 66 L288 204 L415 203 L220 446 L223 284 L100 282 Z"
+      fill="url(#bolt)"
+      stroke="url(#bolt)"
+      stroke-width="18"
+      stroke-linejoin="round"
+      stroke-linecap="round"
+    />
+  </g>
 </svg>

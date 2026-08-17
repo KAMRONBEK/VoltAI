@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -21,8 +21,11 @@ export const metadata: Metadata = {
   description:
     "VoltAI helps you discover EV charging stations, compare options, and get directions quickly.",
   icons: {
-    icon: [{ url: "/favicon.png", type: "image/png", sizes: "32x32" }],
-    apple: [{ url: "/icon.png", type: "image/png", sizes: "1024x1024" }],
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/favicon.png", type: "image/png", sizes: "64x64" },
+    ],
+    apple: [{ url: "/icon.png", type: "image/png", sizes: "512x512" }],
   },
   openGraph: {
     title: "VoltAI",
@@ -32,13 +35,21 @@ export const metadata: Metadata = {
     siteName: "VoltAI",
     locale: "en_US",
     type: "website",
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "VoltAI" }],
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: "VoltAI",
     description:
       "Find EV charging stations, compare options, and get directions quickly.",
+    images: ["/og.png"],
   },
+};
+
+/** Paints the browser chrome (mobile address bar, PWA splash) the app's background. */
+export const viewport: Viewport = {
+  themeColor: "#0b0f0d",
+  colorScheme: "dark",
 };
 
 export default function RootLayout({
